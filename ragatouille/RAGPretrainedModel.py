@@ -2,15 +2,15 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar, Union
 from uuid import uuid4
 
-from langchain.retrievers.document_compressors.base import BaseDocumentCompressor
-from langchain_core.retrievers import BaseRetriever
+#from langchain.retrievers.document_compressors.base import BaseDocumentCompressor
+#from langchain_core.retrievers import BaseRetriever
 
 from ragatouille.data.corpus_processor import CorpusProcessor
 from ragatouille.data.preprocessors import llama_index_sentence_splitter
-from ragatouille.integrations import (
-    RAGatouilleLangChainCompressor,
-    RAGatouilleLangChainRetriever,
-)
+#from ragatouille.integrations import (
+#    RAGatouilleLangChainCompressor,
+#    RAGatouilleLangChainRetriever,
+#)
 from ragatouille.models import ColBERT, LateInteractionModel
 
 
@@ -413,10 +413,10 @@ class RAGPretrainedModel:
         """
         self.model.clear_encoded_docs(force=force)
 
-    def as_langchain_retriever(self, **kwargs: Any) -> BaseRetriever:
-        return RAGatouilleLangChainRetriever(model=self, kwargs=kwargs)
+    #def as_langchain_retriever(self, **kwargs: Any) -> BaseRetriever:
+    #    return RAGatouilleLangChainRetriever(model=self, kwargs=kwargs)
 
-    def as_langchain_document_compressor(
-        self, k: int = 5, **kwargs: Any
-    ) -> BaseDocumentCompressor:
-        return RAGatouilleLangChainCompressor(model=self, k=k, kwargs=kwargs)
+    #def as_langchain_document_compressor(
+    #    self, k: int = 5, **kwargs: Any
+    #) -> BaseDocumentCompressor:
+    #    return RAGatouilleLangChainCompressor(model=self, k=k, kwargs=kwargs)

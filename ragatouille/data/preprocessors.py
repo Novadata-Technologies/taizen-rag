@@ -9,6 +9,7 @@ except ImportError:
 def llama_index_sentence_splitter(
     documents: list[str], document_ids: list[str], chunk_size=256
 ):
+    #raise NotImplementedError("Llama index is needed to execute this function")
     chunk_overlap = min(chunk_size / 4, min(chunk_size / 2, 64))
     chunks = []
     node_parser = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
