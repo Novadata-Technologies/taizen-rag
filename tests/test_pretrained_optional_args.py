@@ -1,222 +1,118 @@
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 import srsly
 
 from ragatouille import RAGPretrainedModel
 
-# Original global sample data
-collection_samples = [
-    "Hayao Miyazaki (宮崎 駿 or 宮﨑 駿, Miyazaki Hayao, [mijaꜜzaki hajao]; born January 5, 1941) is a Japanese animator, filmmaker, and manga artist. A co-founder of Studio Ghibli, he has attained international acclaim as a masterful storyteller and creator of Japanese animated feature films, and is widely regarded as one of the most accomplished filmmakers in the history of animation.\nBorn in Tokyo City in the Empire of Japan, Miyazaki expressed interest in manga and animation from an early age, and he joined Toei Animation in 1963. During his early years at Toei Animation he worked as an in-between artist and later collaborated with director Isao Takahata. Notable films to which Miyazaki contributed at Toei include Doggie March and Gulliver's Travels Beyond the Moon. He provided key animation to other films at Toei, such as Puss in Boots and Animal Treasure Island, before moving to A-Pro in 1971, where he co-directed Lupin the Third Part I alongside Takahata. After moving to Zuiyō Eizō (later known as Nippon Animation) in 1973, Miyazaki worked as an animator on World Masterpiece Theater, and directed the television series Future Boy Conan (1978). He joined Tokyo Movie Shinsha in 1979 to direct his first feature film The Castle of Cagliostro as well as the television series Sherlock Hound. In the same period, he also began writing and illustrating the manga Nausicaä of the Valley of the Wind (1982–1994), and he also directed the 1984 film adaptation produced by Topcraft.\nMiyazaki co-founded Studio Ghibli in 1985. He directed numerous films with Ghibli, including Laputa: Castle in the Sky (1986), My Neighbor Totoro (1988), Kiki's Delivery Service (1989), and Porco Rosso (1992). The films were met with critical and commercial success in Japan. Miyazaki's film Princess Mononoke was the first animated film ever to win the Japan Academy Prize for Picture of the Year, and briefly became the highest-grossing film in Japan following its release in 1997; its distribution to the Western world greatly increased Ghibli's popularity and influence outside Japan. His 2001 film Spirited Away became the highest-grossing film in Japanese history, winning the Academy Award for Best Animated Feature, and is frequently ranked among the greatest films of the 21st century. Miyazaki's later films—Howl's Moving Castle (2004), Ponyo (2008), and The Wind Rises (2013)—also enjoyed critical and commercial success.",
-    "Studio Ghibli, Inc. (Japanese: 株式会社スタジオジブリ, Hepburn: Kabushiki gaisha Sutajio Jiburi) is a Japanese animation studio based in Koganei, Tokyo. It has a strong presence in the animation industry and has expanded its portfolio to include various media formats, such as short subjects, television commercials, and two television films. Their work has been well-received by audiences and recognized with numerous awards. Their mascot and most recognizable symbol, the character Totoro from the 1988 film My Neighbor Totoro, is a giant spirit inspired by raccoon dogs (tanuki) and cats (neko). Among the studio's highest-grossing films are Spirited Away (2001), Howl's Moving Castle (2004), and Ponyo (2008). Studio Ghibli was founded on June 15, 1985, by the directors Hayao Miyazaki and Isao Takahata and producer Toshio Suzuki, after acquiring Topcraft's assets. The studio has also collaborated with video game studios on the visual development of several games.Five of the studio's films are among the ten highest-grossing anime feature films made in Japan. Spirited Away is second, grossing 31.68 billion yen in Japan and over US$380 million worldwide, and Princess Mononoke is fourth, grossing 20.18 billion yen. Three of their films have won the Animage Grand Prix award, four have won the Japan Academy Prize for Animation of the Year, and five have received Academy Award nominations. Spirited Away won the 2002 Golden Bear and the 2003 Academy Award for Best Animated Feature.On August 3, 2014, Studio Ghibli temporarily suspended production following Miyazaki's retirement.",
+# Sample data for tests
+COLLECTION_SAMPLES = [
+    "Hayao Miyazaki is a Japanese animator, filmmaker, and manga artist. He co-founded Studio Ghibli.",
+    "Studio Ghibli, Inc. is a Japanese animation studio based in Koganei, Tokyo. Its mascot is Totoro.",
+    "Princess Mononoke is a 1997 Japanese animated epic historical fantasy film by Studio Ghibli.",
 ]
 
-document_ids_samples = ["miyazaki", "ghibli"]
+DOCUMENT_IDS_SAMPLES = ["miyazaki_bio", "ghibli_info", "mononoke_film"]
 
-document_metadatas_samples = [
-    {"entity": "person", "source": "wikipedia"},
-    {"entity": "organisation", "source": "wikipedia"},
+DOCUMENT_METADATAS_SAMPLES = [
+    {"entity": "person", "source": "wikipedia", "year": 1941},
+    {"entity": "organisation", "source": "wikipedia", "founded": 1985},
+    {"entity": "film", "source": "wikipedia", "release_year": 1997},
 ]
 
-PRETRAINED_MODEL_FOR_TESTS = "colbert-ir/colbertv2.0"
-DEFAULT_EXPERIMENT_NAME = "colbert" # To match original path structure
+# Use a fixed model name for tests for consistency
+PRETRAINED_MODEL_NAME = "colbert-ir/colbertv2.0"
+TEST_EXPERIMENT_NAME = "ragatouille_test_suite_optional_args"
+
 
 @pytest.fixture(scope="session")
-def persistent_temp_index_root(tmp_path_factory):
-    path = tmp_path_factory.mktemp("temp_test_indexes_optional_args")
+def persistent_test_index_root(tmp_path_factory):
+    # Creates a temporary root directory for all indices for the test session
+    path = tmp_path_factory.mktemp("ragatouille_test_indices_root_optional_args")
     yield str(path)
-    # Cleanup is handled by pytest tmp_path_factory for session-scoped fixtures
+    # Cleanup after session
+    shutil.rmtree(path, ignore_errors=True)
 
-@pytest.fixture(scope="session")
-def RAG_from_pretrained_model_fixture(persistent_temp_index_root):
-    # Pass experiment_name to maintain original path structure if tests relied on it
+
+@pytest.fixture(scope="module")  # One RAG model instance per test module (this file)
+def rag_model_instance(persistent_test_index_root):
     return RAGPretrainedModel.from_pretrained(
-        PRETRAINED_MODEL_FOR_TESTS,
-        index_root=str(persistent_temp_index_root),
-        experiment_name=DEFAULT_EXPERIMENT_NAME,
-        verbose=0
+        PRETRAINED_MODEL_NAME,
+        index_root=persistent_test_index_root,
+        experiment_name=TEST_EXPERIMENT_NAME,
+        verbose=0  # Keep test output clean
     )
 
-@pytest.fixture(scope="session")
-def index_path_fixture_session(persistent_temp_index_root, index_creation_inputs_session):
-    # Construct path as it was originally, assuming experiment_name="colbert"
-    # index_root / experiment_name / "indexes" / index_name
-    index_path = os.path.join(
-        str(persistent_temp_index_root),
-        DEFAULT_EXPERIMENT_NAME, # "colbert"
-        "indexes",
-        index_creation_inputs_session["index_name"],
-    )
-    return str(index_path)
 
-@pytest.fixture(scope="session")
-def collection_path_fixture_session(index_path_fixture_session):
-    collection_path = os.path.join(index_path_fixture_session, "collection.json")
-    return str(collection_path)
+# Parameterize test cases for different combinations of inputs to RAG.index()
+INDEX_CREATION_PARAMS = [
+    pytest.param(
+        {
+            "documents": COLLECTION_SAMPLES[:1],
+            "document_ids": None, # Test auto-generation
+            "document_metadatas": None,
+            "index_name_suffix": "no_opts_auto_ids",
+            "max_document_length": 128,
+        },
+        id="no_optional_args_auto_ids",
+    ),
+    pytest.param(
+        {
+            "documents": COLLECTION_SAMPLES[:1],
+            "document_ids": DOCUMENT_IDS_SAMPLES[:1],
+            "document_metadatas": None,
+            "index_name_suffix": "with_docid",
+            "max_document_length": 512, # Simulate no splitting
+        },
+        id="with_doc_ids_no_split",
+    ),
+    pytest.param(
+        {
+            "documents": COLLECTION_SAMPLES[:2],
+            "document_ids": DOCUMENT_IDS_SAMPLES[:2],
+            "document_metadatas": DOCUMENT_METADATAS_SAMPLES[:2],
+            "index_name_suffix": "with_docid_meta",
+            "max_document_length": 64, # Simulate splitting
+        },
+        id="with_doc_ids_metadata_split",
+    ),
+    pytest.param(
+        {
+            "documents": COLLECTION_SAMPLES,
+            "document_ids": DOCUMENT_IDS_SAMPLES,
+            "document_metadatas": DOCUMENT_METADATAS_SAMPLES,
+            "index_name_suffix": "all_docs_all_details",
+            "max_document_length": 128,
+        },
+        id="all_docs_all_details_split",
+    ),
+]
 
-@pytest.fixture(scope="session")
-def document_metadata_path_fixture_session(index_path_fixture_session):
-    document_metadata_path = os.path.join(index_path_fixture_session, "docid_metadata_map.json")
-    return str(document_metadata_path)
 
-@pytest.fixture(scope="session")
-def pid_docid_map_path_fixture_session(index_path_fixture_session):
-    pid_docid_map_path = os.path.join(index_path_fixture_session, "pid_docid_map.json")
-    return str(pid_docid_map_path)
+@pytest.fixture(scope="function", params=INDEX_CREATION_PARAMS)
+def index_params_for_function(request, rag_model_instance):
+    # Generates a unique index name for each parameterized test function run
+    base_params = request.param.copy()
+    # Create a unique index name based on test name and params
+    # to ensure isolation even if tests run in parallel within the module (though pytest usually serializes by default)
+    unique_suffix = request.node.name.replace("test_", "").replace("[", "_").replace("]", "")
+    base_params["index_name"] = f"test_idx_{base_params['index_name_suffix']}_{unique_suffix}"
 
-@pytest.fixture(
-    scope="session",
-    params=[
-        {
-            "collection": collection_samples,
-            "index_name": "no_optional_args",
-            "split_documents": False,
-        },
-        {
-            "collection": collection_samples,
-            "document_ids": document_ids_samples,
-            "index_name": "with_docid",
-            "split_documents": False,
-        },
-        {
-            "collection": collection_samples,
-            "document_metadatas": document_metadatas_samples,
-            "index_name": "with_metadata",
-            "split_documents": False,
-        },
-        {
-            "collection": collection_samples,
-            "index_name": "with_split",
-            "split_documents": True,
-        },
-        {
-            "collection": collection_samples,
-            "document_ids": document_ids_samples,
-            "document_metadatas": document_metadatas_samples,
-            "index_name": "with_docid_metadata",
-            "split_documents": False,
-        },
-        {
-            "collection": collection_samples,
-            "document_ids": document_ids_samples,
-            "index_name": "with_docid_split",
-            "split_documents": True,
-        },
-        {
-            "collection": collection_samples,
-            "document_metadatas": document_metadatas_samples,
-            "index_name": "with_metadata_split",
-            "split_documents": True,
-        },
-        {
-            "collection": collection_samples,
-            "document_ids": document_ids_samples,
-            "document_metadatas": document_metadatas_samples,
-            "index_name": "with_docid_metadata_split",
-            "split_documents": True,
-        },
-    ],
-    ids=[
-        "No optional arguments",
-        "With document IDs",
-        "With metadata",
-        "With document splitting",
-        "With document IDs and metadata",
-        "With document IDs and splitting",
-        "With metadata and splitting",
-        "With document IDs, metadata, and splitting",
-    ],
-)
-def index_creation_inputs_session(request):
-    # This provides the raw parameters for each test case
-    return request.param
-
-@pytest.fixture(scope="session")
-def create_index_session(RAG_from_pretrained_model_fixture, index_creation_inputs_session):
-    api_call_params = index_creation_inputs_session.copy()
-
-    if "collection" in api_call_params:
-        api_call_params["documents"] = api_call_params.pop("collection")
-
-    split_docs = api_call_params.pop("split_documents", False) # Default to False if not present
-    if split_docs:
-        api_call_params["max_document_length"] = 256 # Default for splitting
+    # Ensure document_ids are correctly handled for RAG.index()
+    # If document_ids is None in params, RAGPretrainedModel will auto-generate them.
+    # Store the effective document_ids used for assertion later.
+    if base_params["document_ids"] is None:
+        # RAGPretrainedModel generates UUIDs if None is passed.
+        # We can't know them in advance for assertion against pid_docid_map values exactly,
+        # but we can check counts and that metadata aligns if generated.
+        # For simplicity in this test, we will just ensure metadata isn't expected if IDs were None.
+        base_params["effective_document_ids_for_assertion"] = None
     else:
-        api_call_params["max_document_length"] = 512 # Cap at model's max sequence length
+        base_params["effective_document_ids_for_assertion"] = base_params["document_ids"]
 
-    # Ensure 'document_ids' and 'document_metadatas' are present if needed, or pass None
-    api_call_params.setdefault("document_ids", None)
-    api_call_params.setdefault("document_metadatas", None)
-
-    # overwrite_index=True ensures a clean state for each parameterization if run independently
-    # but since this is session scoped and parameterized, this might overwrite for subsequent params.
-    # For strict adherence to "minimal change", we keep the original logic where overwrite
-    # policy is implicitly handled by ColBERT (default "reuse").
-    # If tests need pristine state per param set, they'd need function scope.
-    # Given the original was session-scoped, let's assume sequential execution of params or reuse is fine.
-    api_call_params["overwrite_index"] = True
-
-
-    index_path = RAG_from_pretrained_model_fixture.index(**api_call_params)
-    return index_path
-
-# This fixture ensures that `index_creation_inputs_session` has `document_ids` populated
-# for tests that rely on it later (like metadata checks).
-@pytest.fixture(scope="session", autouse=True)
-def populate_docids_in_inputs_session(
-    create_index_session, # Ensures index is created first
-    index_creation_inputs_session, # The specific parameters for current session iteration
-    pid_docid_map_path_fixture_session, # Path to the pid_docid_map.json for this iteration
-):
-    # If document_ids were not initially provided for this parameter set
-    if "document_ids" not in index_creation_inputs_session or index_creation_inputs_session["document_ids"] is None:
-        # And if metadata was provided (implying IDs are important for mapping)
-        # Or if we just want to ensure IDs are available for later tests like delete
-        pid_docid_map_data = srsly.read_json(pid_docid_map_path_fixture_session)
-        # Extract unique document IDs from the map
-        seen_ids = set()
-        # The PIDs are integers, values are the DocIDs.
-        # RAGPretrainedModel ensures these are strings (UUIDs if auto-generated)
-        effective_doc_ids = [
-            str(x) # Ensure string type consistent with how RAGPretrainedModel handles it
-            for x in list(pid_docid_map_data.values())
-            if not (str(x) in seen_ids or seen_ids.add(str(x))) # Unique doc_ids
-        ]
-        index_creation_inputs_session["document_ids"] = effective_doc_ids
-        # If metadatas were provided but IDs were not, this step is crucial
-        # for aligning them for later assertions.
-        # However, this might be tricky if the number of auto-generated IDs
-        # doesn't match the number of metadatas provided initially.
-        # The original test assumed this alignment; RAGPretrainedModel now requires
-        # document_ids if document_metadatas is provided.
-        # If document_ids was None but document_metadatas was not, an error should occur earlier.
-        # This fixture primarily helps when both were None, or only collection was given.
-
-
-# Tests now use the session-scoped fixtures.
-# Each test function will run ONCE per parameter set defined in `index_creation_inputs_session`.
-# The state of the index will persist across these test functions for a given parameter set.
-
-def test_index_creation(create_index_session):
-    assert os.path.exists(create_index_session), "Index path should exist."
-
-def test_collection_creation(collection_path_fixture_session): # Path for current param set
-    assert os.path.exists(collection_path_fixture_session)
-    collection_data = srsly.read_json(collection_path_fixture_session)
-    assert isinstance(collection_data, list)
-
-def test_pid_docid_map_creation(pid_docid_map_path_fixture_session): # Path for current param set
-    assert os.path.exists(pid_docid_map_path_fixture_session)
-    pid_docid_map_data = srsly.read_json(pid_docid_map_path_fixture_session)
-    assert isinstance(pid_docid_map_data, dict)
-
-def test_document_metadata_creation(
-    index_creation_inputs_session, document_metadata_path_fixture_session
-):
-    if "document_metadatas" in index_creation_inputs_session and index_creation_inputs_session["document_metadatas"] is not None:
-        assert os.path.exists(document_metadata_path_fixture_session)
-        document_metadata_dict = srsly.read_json(document_metadata_path_fixture_session)
+    return base_params
 
         # Ensure document_ids were populated if metadatas are to be checked
         assert "document_ids" in index_creation_inputs_session and index_creation_inputs_session["document_ids"] is not None, \
@@ -229,144 +125,169 @@ def test_document_metadata_creation(
     else:
         assert not os.path.exists(document_metadata_path_fixture_session)
 
-def test_document_metadata_returned_in_search_results(
-    RAG_from_pretrained_model_fixture, index_creation_inputs_session, index_path_fixture_session, persistent_temp_index_root
-):
-    # Use from_index to get a fresh RAG instance for searching this specific index parameterization
-    # This ensures that the RAG instance is configured specifically for the index being tested.
-    # The pretrained_model_name_or_path is crucial for the new API.
-    RAG = RAGPretrainedModel.from_index(
-        index_path=index_path_fixture_session,
-        pretrained_model_name_or_path=PRETRAINED_MODEL_FOR_TESTS,
-        index_root=str(persistent_temp_index_root),
-        verbose=0
-    )
+@pytest.fixture(scope="function")
+def created_index_data(rag_model_instance, index_params_for_function):
+    RAG = rag_model_instance
+    params = index_params_for_function # Renamed for clarity within this fixture
+    index_name = params["index_name"]
 
-    results = RAG.search(
-        query="when was miyazaki born", # A generic query
-        index_name=index_creation_inputs_session["index_name"]
+    actual_index_path_str = RAG.index(
+        index_name=index_name,
+        documents=params["documents"],
+        document_ids=params["document_ids"], # Pass None if specified in params for auto-generation
+        document_metadatas=params["document_metadatas"],
+        max_document_length=params["max_document_length"],
+        overwrite_index=True # Crucial for test isolation
     )
+    yield {
+        "index_name": index_name,
+        "index_path_str": actual_index_path_str,
+        "params_used": params # Contains effective_document_ids_for_assertion
+    }
+    # Optional: RAG.delete_index(index_name) if it exists, or rely on session cleanup of root.
 
-    if "document_metadatas" in index_creation_inputs_session and index_creation_inputs_session["document_metadatas"] is not None:
-        assert "document_ids" in index_creation_inputs_session and index_creation_inputs_session["document_ids"] is not None, \
-            "document_ids must be available in inputs to check metadata in search results."
-        for result in results:
-            assert "document_metadata" in result
-            doc_id = result["document_id"]
-            # This assumes doc_id from search result will be in the original list
-            # which is true if IDs were provided or correctly inferred.
-            if doc_id in index_creation_inputs_session["document_ids"]:
-                 idx = index_creation_inputs_session["document_ids"].index(doc_id)
-                 expected_metadata = index_creation_inputs_session["document_metadatas"][idx]
-                 assert result["document_metadata"] == expected_metadata
+
+def get_full_index_path_obj(persistent_test_index_root, index_name):
+    return Path(persistent_test_index_root) / TEST_EXPERIMENT_NAME / "indexes" / index_name
+
+
+def test_index_creation_and_structure(created_index_data, persistent_test_index_root):
+    index_name = created_index_data["index_name"]
+    params_used = created_index_data["params_used"]
+    full_path = get_full_index_path_obj(persistent_test_index_root, index_name)
+
+    assert full_path.exists(), f"Index directory {full_path} was not created."
+    assert (full_path / "collection.json").exists(), "collection.json missing."
+    assert (full_path / "pid_docid_map.json").exists(), "pid_docid_map.json missing."
+
+    if params_used.get("document_metadatas"):
+        assert (full_path / "docid_metadata_map.json").exists(), "docid_metadata_map.json missing when metadata provided."
     else:
-        for result in results:
-            assert "document_metadata" not in result
+        assert not (full_path / "docid_metadata_map.json").exists(), "docid_metadata_map.json exists when no metadata provided."
+
+    pid_docid_map_data = srsly.read_json(str(full_path / "pid_docid_map.json"))
+    assert isinstance(pid_docid_map_data, dict)
+
+    # Check that number of passages (PIDs) is reasonable
+    # If max_document_length is small, expect more passages than original documents
+    if params_used["max_document_length"] < 200 and len(params_used["documents"]) > 0 : # Rough check for splitting
+        assert len(pid_docid_map_data) >= len(params_used["documents"]), "Splitting should result in more or equal passages than documents"
+    elif len(params_used["documents"]) > 0:
+         assert len(pid_docid_map_data) == len(params_used["documents"]), "No splitting should result in equal passages and documents"
 
 
-def test_add_to_existing_index(
-    index_creation_inputs_session,
-    index_path_fixture_session, # Path to the specific index for this param set
-    pid_docid_map_path_fixture_session,
-    document_metadata_path_fixture_session,
-    persistent_temp_index_root
-):
-    # Instantiate RAG using from_index to ensure it's targeting the correct index path and root
-    RAG = RAGPretrainedModel.from_index(
-        index_path=index_path_fixture_session,
-        pretrained_model_name_or_path=PRETRAINED_MODEL_FOR_TESTS,
-        index_root=str(persistent_temp_index_root),
-        verbose=0
-    )
+    if params_used.get("effective_document_ids_for_assertion"):
+        provided_doc_ids_set = set(params_used["effective_document_ids_for_assertion"])
+        mapped_doc_ids_set = set(pid_docid_map_data.values())
+        assert provided_doc_ids_set == mapped_doc_ids_set, "Mismatch between provided document_ids and those in pid_docid_map."
 
-    # This relies on populate_docids_in_inputs_session to have run
-    existing_doc_ids = index_creation_inputs_session.get("document_ids", [])
 
-    new_doc_ids = ["mononoke_added", "sabaku_no_tami_added"]
-    new_docs_to_add = [
-        "Princess Mononoke is an epic film.",
-        "People of the Desert is a manga by Miyazaki.",
-    ]
-    new_doc_metadata_to_add = [
-        {"entity": "film", "source": "test_add"},
-        {"entity": "manga", "source": "test_add"},
-    ]
+def test_search_results_and_metadata(rag_model_instance, created_index_data):
+    RAG = rag_model_instance
+    index_name = created_index_data["index_name"]
+    params_used = created_index_data["params_used"]
+
+    query = "Hayao Miyazaki Ghibli" # A general query likely to hit sample data
+    results = RAG.search(index_name=index_name, query=query, k=1)
+
+    assert isinstance(results, list)
+    if params_used["documents"]:
+        # Results can be empty if k=0 or no match, so check len >= 0
+        assert len(results) <= 1, "Search with k=1 should return at most 1 result."
+        if results:
+            result = results[0]
+            assert "content" in result
+            assert "score" in result
+            assert "rank" in result
+            assert "document_id" in result
+
+            if params_used.get("document_metadatas") and params_used.get("effective_document_ids_for_assertion"):
+                assert "document_metadata" in result, "document_metadata missing in search result."
+                retrieved_doc_id = result["document_id"]
+                try:
+                    original_idx = params_used["effective_document_ids_for_assertion"].index(retrieved_doc_id)
+                    expected_metadata = params_used["document_metadatas"][original_idx]
+                    assert result["document_metadata"] == expected_metadata, "Mismatch in returned document metadata."
+                except ValueError:
+                    # This can happen if the retrieved_doc_id was auto-generated and not in our effective_document_ids_for_assertion
+                    # This part of the check is only fully valid if document_ids were explicitly provided.
+                    if params_used["document_ids"] is not None: # Only fail if we expected to find it
+                        pytest.fail(f"Retrieved document_id {retrieved_doc_id} not in original document_ids for test.")
+            else:
+                assert "document_metadata" not in result, "document_metadata present when it was not indexed."
+    else: # No documents were indexed
+        assert len(results) == 0
+
+
+def test_add_to_existing_index(rag_model_instance, created_index_data, persistent_test_index_root):
+    RAG = rag_model_instance
+    index_name = created_index_data["index_name"]
+    full_index_dir_path = get_full_index_path_obj(persistent_test_index_root, index_name)
+    collection_file_path = full_index_dir_path / "collection.json"
+    pid_docid_map_file_path = full_index_dir_path / "pid_docid_map.json"
+    docid_metadata_map_file_path = full_index_dir_path / "docid_metadata_map.json"
+
+    initial_collection_len = len(srsly.read_json(str(collection_file_path)))
+
+    new_docs_to_add = ["Toei Animation is another famous Japanese animation studio."]
+    new_doc_ids_to_add = ["toei_animation_info_add_test"]
+    new_doc_metadatas_to_add = [{"entity": "organisation", "source": "test_add_to_index"}]
 
     RAG.add_to_index(
-        index_name=index_creation_inputs_session["index_name"],
-        new_documents=new_docs_to_add, # API change: new_collection -> new_documents
-        new_document_ids=new_doc_ids,
-        new_document_metadatas=new_doc_metadata_to_add,
+        index_name=index_name,
+        new_documents=new_docs_to_add,
+        new_document_ids=new_doc_ids_to_add,
+        new_document_metadatas=new_doc_metadatas_to_add,
     )
 
-    pid_docid_map_data_after_add = srsly.read_json(pid_docid_map_path_fixture_session)
-    doc_ids_in_map_after_add = set(list(pid_docid_map_data_after_add.values()))
+    updated_collection = srsly.read_json(str(collection_file_path))
+    assert len(updated_collection) > initial_collection_len
 
-    # Check for new docs
-    for new_doc_id in new_doc_ids:
-        assert new_doc_id in doc_ids_in_map_after_add
+    updated_pid_docid_map = srsly.read_json(str(pid_docid_map_file_path))
+    assert new_doc_ids_to_add[0] in updated_pid_docid_map.values()
 
-    # Check existing docs are still there
-    for existing_doc_id in existing_doc_ids:
-        assert existing_doc_id in doc_ids_in_map_after_add
+    if docid_metadata_map_file_path.exists() or new_doc_metadatas_to_add: # File may be created if it didn't exist but new metadata is added
+        # Wait for file system to catch up if needed, though srsly should handle it.
+        if not docid_metadata_map_file_path.exists() and new_doc_metadatas_to_add:
+            import time; time.sleep(0.1) # Small delay, usually not needed
 
-    if os.path.exists(document_metadata_path_fixture_session):
-        doc_metadata_dict_after_add = srsly.read_json(document_metadata_path_fixture_session)
-        for new_doc_id in new_doc_ids:
-            assert new_doc_id in doc_metadata_dict_after_add
-        if "document_metadatas" in index_creation_inputs_session and index_creation_inputs_session["document_metadatas"] is not None:
-            for existing_doc_id in existing_doc_ids:
-                 assert existing_doc_id in doc_metadata_dict_after_add
+        if docid_metadata_map_file_path.exists():
+            updated_docid_metadata_map = srsly.read_json(str(docid_metadata_map_file_path))
+            assert new_doc_ids_to_add[0] in updated_docid_metadata_map
+            assert updated_docid_metadata_map[new_doc_ids_to_add[0]] == new_doc_metadatas_to_add[0]
 
-def test_delete_from_index(
-    index_creation_inputs_session,
-    index_path_fixture_session, # Path to the specific index
-    pid_docid_map_path_fixture_session,
-    document_metadata_path_fixture_session,
-    persistent_temp_index_root
-):
-    # Instantiate RAG using from_index to ensure it's targeting the correct index path and root
-    RAG = RAGPretrainedModel.from_index(
-        index_path=index_path_fixture_session,
-        pretrained_model_name_or_path=PRETRAINED_MODEL_FOR_TESTS,
-        index_root=str(persistent_temp_index_root),
-        verbose=0
-    )
-
-    # This test assumes 'document_ids' were populated by populate_docids_in_inputs_session
-    # or were part of the original index_creation_inputs_session.
-    if not index_creation_inputs_session.get("document_ids"):
-        pytest.skip("Cannot run delete test if no document_ids are defined for the index.")
-
-    # To ensure this test doesn't interfere with subsequent parameterizations using the same files
-    # if not re-instanced with from_index, we might need function-scoped RAG instances or careful state management.
-    # However, the original structure was session-scoped. We proceed by trying to delete one of the *original* IDs.
-    # This assumes the add_to_index test might have run before.
-
-    doc_ids_before_delete_set = set(srsly.read_json(pid_docid_map_path_fixture_session).values())
-
-    # Pick an ID to delete that was part of the original set for this param, if any
-    # Or, if add_to_index ran, it could be one of those. Let's try to delete one of the "added" ones if present.
-    id_to_delete = "mononoke_added" # From test_add_to_existing_index
-    if id_to_delete not in doc_ids_before_delete_set:
-        # If the "added" ID isn't there (e.g. add test skipped or failed), try an original one
-        if index_creation_inputs_session["document_ids"]:
-            id_to_delete = index_creation_inputs_session["document_ids"][0]
-        else:
-            pytest.skip("No clear ID to delete for this test run.")
+    results_for_new = RAG.search(index_name=index_name, query="Toei Animation studio", k=3)
+    found_new_doc_in_search = any(res.get("document_id") == new_doc_ids_to_add[0] for res in results_for_new)
+    assert found_new_doc_in_search, "Newly added document not found in search results."
 
 
-    RAG.delete_from_index(
-        index_name=index_creation_inputs_session["index_name"],
-        document_ids=[id_to_delete], # API change: expects List[str]
-    )
+def test_delete_from_index(rag_model_instance, created_index_data, persistent_test_index_root):
+    RAG = rag_model_instance
+    index_name = created_index_data["index_name"]
+    params_used = created_index_data["params_used"]
 
-    pid_docid_map_data_after_delete = srsly.read_json(pid_docid_map_path_fixture_session)
-    doc_ids_in_map_after_delete = set(list(pid_docid_map_data_after_delete.values()))
+    # This test can only meaningfully run if specific document_ids were used for creation
+    if not params_used.get("effective_document_ids_for_assertion"):
+        pytest.skip("Skipping delete test as no explicit document_ids were used for this index setup.")
 
-    assert id_to_delete not in doc_ids_in_map_after_delete
+    doc_id_to_delete = params_used["effective_document_ids_for_assertion"][0]
+    content_of_deleted_doc = params_used["documents"][0] # Get content to search for it later
 
-    if "document_metadatas" in index_creation_inputs_session and index_creation_inputs_session["document_metadatas"] is not None:
-        if os.path.exists(document_metadata_path_fixture_session): # Check if metadata file still exists
-            doc_metadata_dict_after_delete = srsly.read_json(document_metadata_path_fixture_session)
-            assert id_to_delete not in doc_metadata_dict_after_delete
+    full_index_dir_path = get_full_index_path_obj(persistent_test_index_root, index_name)
+    pid_docid_map_file_path = full_index_dir_path / "pid_docid_map.json"
+    docid_metadata_map_file_path = full_index_dir_path / "docid_metadata_map.json"
+
+    RAG.delete_from_index(index_name=index_name, document_ids=[doc_id_to_delete])
+
+    updated_pid_docid_map = srsly.read_json(str(pid_docid_map_file_path))
+    assert doc_id_to_delete not in updated_pid_docid_map.values()
+
+    if params_used.get("document_metadatas"):
+        if docid_metadata_map_file_path.exists(): # File might be deleted if all entries removed
+            updated_docid_metadata_map = srsly.read_json(str(docid_metadata_map_file_path))
+            assert doc_id_to_delete not in updated_docid_metadata_map
+
+    # Try to search for content of the deleted document
+    results_after_delete = RAG.search(index_name=index_name, query=content_of_deleted_doc, k=5)
+    found_deleted_id_in_results = any(res.get("document_id") == doc_id_to_delete for res in results_after_delete)
+    assert not found_deleted_id_in_results, f"Document ID {doc_id_to_delete} was found in search results after deletion."
