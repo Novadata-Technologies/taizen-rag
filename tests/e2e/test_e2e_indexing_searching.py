@@ -49,6 +49,7 @@ def test_indexing(rag_model_for_indexing, miyazaki_index_name, miyazaki_index_pa
         documents=[full_document],
         document_ids=["miyazaki_doc_1"], # Must provide document_ids
         max_document_length=180,
+        split_documents=True
     )
     # ensure collection is stored to disk
     collection_path = miyazaki_index_path / "collection.json"
@@ -70,19 +71,50 @@ def test_search(model_name, miyazaki_index_name, miyazaki_index_path):
     # search now requires index_name
     results = RAG.search(index_name=miyazaki_index_name, query="What animation studio did Miyazaki found?", k=k)
     assert len(results) == k
-    # Content assertions can be brittle, checking for presence is okay
-    assert "Studio Ghibli" in results[0]["content"] or "Nibariki" in results[0]["content"]
+    assert (
+        "In April 1984, Miyazaki opened his own office in Suginami Ward"
+        in results[0]["content"]
+    )
+    assert (
+        "Hayao Miyazaki (宮崎 駿 or 宮﨑 駿, Miyazaki Hayao, [mijaꜜzaki hajao]; born January 5, 1941)"  # noqa
+        in results[1]["content"]
+    )
+    assert (
+        'Glen Keane said Miyazaki is a "huge influence" on Walt Disney Animation Studios and has been'  # noqa
+        in results[2]["content"]
+    )
 
     all_results = RAG.search(
         index_name=miyazaki_index_name,
         query=["What animation studio did Miyazaki found?", "Miyazaki son name"],
         k=k
     )
-    assert len(all_results) == 2
-    assert len(all_results[0]) == k
-    assert len(all_results[1]) == k
-    assert "Studio Ghibli" in all_results[0][0]["content"] or "Nibariki" in all_results[0][0]["content"]
-    assert "Goro" in all_results[1][0]["content"] or "Keisuke" in all_results[1][0]["content"]
+    assert (
+        "In April 1984, Miyazaki opened his own office in Suginami Ward"
+        in all_results[0][0]["content"]
+    )
+    assert (
+        "Hayao Miyazaki (宮崎 駿 or 宮﨑 駿, Miyazaki Hayao, [mijaꜜzaki hajao]; born January 5, 1941)"  # noqa
+        in all_results[0][1]["content"]
+    )
+    assert (
+        'Glen Keane said Miyazaki is a "huge influence" on Walt Disney Animation Studios and has been'  # noqa
+        in all_results[0][2]["content"]
+    )
+    assert (
+        "== Early life ==\nHayao Miyazaki was born on January 5, 1941"
+        in all_results[1][0]["content"]  # noqa
+    )
+    assert (
+        "Directed by Isao Takahata, with whom Miyazaki would continue to collaborate for the remainder of his career"  # noqa
+        in all_results[1][1]["content"]
+    )
+    actual = all_results[1][2]["content"]
+    assert (
+        "Specific works that have influenced Miyazaki include Animal Farm (1945)"
+        in actual
+        or "She met with Suzuki" in actual
+    )
     print(all_results)
 
 
