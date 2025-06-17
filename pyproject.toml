@@ -34,7 +34,8 @@ dependencies = [
     "sentence-transformers",
     "setuptools",
     "einops",
-    "psutil"
+    "psutil",
+    "pytest>=8.4.0",
 ]
 
 [project.optional-dependencies]
@@ -45,8 +46,9 @@ all = [
     "fastapi >= 0.114.1",
     "uvicorn >= 0.30.6",
     "batched >= 0.1.2",
+    "pytest"
 ]
-api = ["fastapi >= 0.114.1", "uvicorn >= 0.30.6", "batched >= 0.1.2"]
+api = ["fastapi >= 0.114.1", "uvicorn >= 0.30.6", "batched >= 0.1.2", "pytest"]
 train = ["sentence-transformers", "pylate", "rerankers"]
 
 [project.urls]

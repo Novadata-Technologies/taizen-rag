@@ -11,7 +11,7 @@ install:        ## Install the package and dependencies in a venv
 	uv pip install -e .[api]
 
 run-api:        ## Run the api server
-	uv run python -m ragatouille.server.server --index_name .ragatouille/colbert/indexes/demo --reload
+	uv run python -m ragatouille.server.server --index-root  /Users/pau/development/taizen-rag/.ragatouille --experiment-name colbert --reload
 
 lint:   ## Run linters: ruff
 	uv run ruff check . --fix
