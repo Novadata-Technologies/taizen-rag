@@ -1,422 +1,466 @@
+import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar, Union
+from typing import Callable, List, Optional, Union, Dict, Any, Tuple, Literal
 from uuid import uuid4
 
-#from langchain.retrievers.document_compressors.base import BaseDocumentCompressor
-#from langchain_core.retrievers import BaseRetriever
-
+from ragatouille.models.colbert import ColBERT
 from ragatouille.data.corpus_processor import CorpusProcessor
 from ragatouille.data.preprocessors import llama_index_sentence_splitter
-#from ragatouille.integrations import (
-#    RAGatouilleLangChainCompressor,
-#    RAGatouilleLangChainRetriever,
-#)
-from ragatouille.models import ColBERT, LateInteractionModel
+from colbert.infra import ColBERTConfig
 
 
 class RAGPretrainedModel:
     """
-    Wrapper class for a pretrained RAG late-interaction model, and all the associated utilities.
-    Allows you to load a pretrained model from disk or from the hub, build or query an index.
-
-    ## Usage
-
-    Load a pre-trained checkpoint:
-
-    ```python
-    from ragatouille import RAGPretrainedModel
-
-    RAG = RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
-    ```
-
-    Load checkpoint from an existing index:
-
-    ```python
-    from ragatouille import RAGPretrainedModel
-
-    RAG = RAGPretrainedModel.from_index("path/to/my/index")
-    ```
-
-    Both methods will load a fully initialised instance of ColBERT, which you can use to build and query indexes.
-
-    ```python
-    RAG.search("How many people live in France?")
-    ```
+    Wrapper class for ColBERT models, supporting multiple indices
+    managed by a single underlying neural network model.
     """
 
-    model_name: Union[str, None] = None
-    model: Union[LateInteractionModel, None] = None
-    corpus_processor: Optional[CorpusProcessor] = None
+    def __init__(
+        self,
+        colbert_model: ColBERT,
+        corpus_processor: CorpusProcessor,
+        verbose: int = 1,
+    ):
+        """
+        Initializes the RAGPretrainedModel.
+
+        Parameters:
+            colbert_model: An initialized instance of the ColBERT model.
+            corpus_processor: An initialized instance of the CorpusProcessor.
+            verbose: Verbosity level.
+        """
+        self.model: ColBERT = colbert_model
+        self.corpus_processor: CorpusProcessor = corpus_processor
+        self.verbose: int = verbose
 
     @classmethod
     def from_pretrained(
         cls,
         pretrained_model_name_or_path: Union[str, Path],
+        index_root: Optional[str] = None,
+        initial_index_name: Optional[str] = None,
         n_gpu: int = -1,
         verbose: int = 1,
-        index_root: Optional[str] = None,
+        experiment_name: str = "colbert",
+        document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
+        preprocessing_fns: Optional[Union[Callable, List[Callable]]] = None,
+        **colbert_kwargs: Any,
     ):
-        """Load a ColBERT model from a pre-trained checkpoint.
+        """
+        Load a ColBERT model from a pretrained path or Hugging Face model name.
+        This instance can then manage multiple indices under the specified index_root.
 
         Parameters:
-            pretrained_model_name_or_path (str): Local path or huggingface model name.
-            n_gpu (int): Number of GPUs to use. By default, value is -1, which means use all available GPUs or none if no GPU is available.
-            verbose (int): The level of ColBERT verbosity requested. By default, 1, which will filter out most internal logs.
-            index_root (Optional[str]): The root directory where indexes will be stored. If None, will use the default directory, '.ragatouille/'.
-
-        Returns:
-            cls (RAGPretrainedModel): The current instance of RAGPretrainedModel, with the model initialised.
+            pretrained_model_name_or_path: Path to a local ColBERT checkpoint or HF model name.
+            index_root: The root directory where all named indices will be stored/loaded from.
+                        Defaults to '.ragatouille/' within the ColBERT class if None.
+            initial_index_name: Optionally, the name of an index to load immediately.
+            n_gpu: Number of GPUs to use. -1 for all available.
+            verbose: Verbosity level.
+            experiment_name: Name of the experiment, used in structuring the index path.
+            document_splitter_fn: Function to split documents into passages.
+            preprocessing_fns: Functions to preprocess passages.
+            **colbert_kwargs: Additional keyword arguments for ColBERTConfig for new indices.
         """
-        instance = cls()
-        instance.model = ColBERT(
-            pretrained_model_name_or_path, n_gpu, index_root=index_root, verbose=verbose
+        colbert_model_instance = ColBERT(
+            pretrained_model_name_or_path=str(pretrained_model_name_or_path),
+            index_root=index_root,
+            initial_index_name=initial_index_name,
+            n_gpu=n_gpu,
+            verbose=verbose,
+            experiment_name=experiment_name,
+            **colbert_kwargs,
         )
-        return instance
+        corpus_processor_instance = CorpusProcessor(
+            document_splitter_fn=document_splitter_fn,
+            preprocessing_fn=preprocessing_fns,
+        )
+        return cls(
+            colbert_model=colbert_model_instance,
+            corpus_processor=corpus_processor_instance,
+            verbose=verbose,
+        )
 
     @classmethod
     def from_index(
-        cls, index_path: Union[str, Path], n_gpu: int = -1, verbose: int = 1
+        cls,
+        index_path: Union[str, Path],
+        n_gpu: int = -1,
+        verbose: int = 1,
+        document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
+        preprocessing_fns: Optional[Union[Callable, List[Callable]]] = None,
+        pretrained_model_name_or_path: Optional[Union[str, Path]] = None,
+        **colbert_kwargs: Any,
     ):
-        """Load an Index and the associated ColBERT encoder from an existing document index.
+        """
+        Load a RAGPretrainedModel from an existing index directory.
+        The underlying ColBERT model will be loaded, and this specific index will be
+        set as the initially loaded index.
 
         Parameters:
-            index_path (Union[str, path]): Path to the index.
-            n_gpu (int): Number of GPUs to use. By default, value is -1, which means use all available GPUs or none if no GPU is available.
-            verbose (int): The level of ColBERT verbosity requested. By default, 1, which will filter out most internal logs.
-
-        Returns:
-            cls (RAGPretrainedModel): The current instance of RAGPretrainedModel, with the model and index initialised.
+            index_path: Path to the specific ColBERT index directory.
+            n_gpu: Number of GPUs to use.
+            verbose: Verbosity level.
+            document_splitter_fn: Function to split documents into passages.
+            preprocessing_fns: Functions to preprocess passages.
+            pretrained_model_name_or_path: Optional. Path/name of the base ColBERT model.
+                                           If not provided, attempts to infer from index metadata.
+            **colbert_kwargs: Additional keyword arguments for ColBERTConfig.
         """
-        instance = cls()
-        index_path = Path(index_path)
-        instance.model = ColBERT(
-            index_path, n_gpu, verbose=verbose, load_from_index=True
-        )
+        resolved_index_path = Path(index_path).resolve()
+        initial_index_name = resolved_index_path.name
 
-        return instance
+        base_model_path_to_use = pretrained_model_name_or_path
+        experiment_name_for_colbert = "colbert"  # Default
+        index_root_for_colbert = None
 
-    def _process_metadata(
-        self,
-        document_ids: Optional[Union[TypeVar("T"), List[TypeVar("T")]]],
-        document_metadatas: Optional[list[dict[Any, Any]]],
-        collection_len: int,
-    ) -> tuple[list[str], Optional[dict[Any, Any]]]:
-        if document_ids is None:
-            document_ids = [str(uuid4()) for i in range(collection_len)]
-        else:
-            if len(document_ids) != collection_len:
-                raise ValueError("document_ids must be the same length as collection")
-            if len(document_ids) != len(set(document_ids)):
-                raise ValueError("document_ids must be unique")
-            if any(not id.strip() for id in document_ids):
-                raise ValueError("document_ids must not contain empty strings")
-            if not all(isinstance(id, type(document_ids[0])) for id in document_ids):
-                raise ValueError("All document_ids must be of the same type")
+        if not base_model_path_to_use:
+            try:
+                temp_colbert_config = ColBERTConfig.load_from_index(str(resolved_index_path))
+                base_model_path_to_use = temp_colbert_config.checkpoint
+                experiment_name_for_colbert = temp_colbert_config.experiment
+                # Infer index_root: Path(index_root) / experiment_name / "indexes" / index_name = resolved_index_path
+                index_root_for_colbert = str(resolved_index_path.parent.parent.parent)
 
-        if document_metadatas is not None:
-            if len(document_metadatas) != collection_len:
+                if verbose > 0:
+                    print(
+                        f"Inferred base model: {base_model_path_to_use}, "
+                        f"experiment: {experiment_name_for_colbert}, "
+                        f"index_root: {index_root_for_colbert} from index '{initial_index_name}'."
+                    )
+            except Exception as e:
+                if verbose > 0:
+                    print(
+                        f"Warning: Could not automatically determine base model path or other parameters "
+                        f"from index '{index_path}'. Error: {e}"
+                    )
                 raise ValueError(
-                    "document_metadatas must be the same length as collection"
-                )
-            docid_metadata_map = {
-                x: y for x, y in zip(document_ids, document_metadatas)
-            }
-        else:
-            docid_metadata_map = None
+                    "Failed to load from index. pretrained_model_name_or_path is required "
+                    "if it cannot be inferred from the index's metadata (e.g., ColBERTConfig in the index)."
+                ) from e
 
-        return document_ids, docid_metadata_map
+        if not base_model_path_to_use:
+            raise ValueError("pretrained_model_name_or_path could not be determined for from_index.")
 
-    def _process_corpus(
-        self,
-        collection: List[str],
-        document_ids: List[str],
-        document_metadatas: List[Dict[Any, Any]],
-        document_splitter_fn: Optional[Callable[[str], List[str]]],
-        preprocessing_fn: Optional[Callable[[str], str]],
-        max_document_length: int,
-    ) -> Tuple[List[str], Dict[int, str], Dict[str, Dict[Any, Any]]]:
-        """
-        Processes a collection of documents by assigning unique IDs, splitting documents if necessary,
-        applying preprocessing, and organizing metadata.
-        """
-        document_ids, docid_metadata_map = self._process_metadata(
-            document_ids=document_ids,
-            document_metadatas=document_metadatas,
-            collection_len=len(collection),
+        # Allow kwargs to override inferred values if explicitly passed
+        if "index_root" in colbert_kwargs:
+            index_root_for_colbert = colbert_kwargs.pop("index_root")
+        if "experiment_name" in colbert_kwargs:
+             experiment_name_for_colbert = colbert_kwargs.pop("experiment_name")
+
+
+        return cls.from_pretrained(
+            pretrained_model_name_or_path=str(base_model_path_to_use),
+            index_root=index_root_for_colbert,
+            initial_index_name=initial_index_name,
+            n_gpu=n_gpu,
+            verbose=verbose,
+            experiment_name=experiment_name_for_colbert,
+            document_splitter_fn=document_splitter_fn,
+            preprocessing_fns=preprocessing_fns,
+            **colbert_kwargs,
         )
 
-        if document_splitter_fn is not None or preprocessing_fn is not None:
-            self.corpus_processor = CorpusProcessor(
-                document_splitter_fn=document_splitter_fn,
-                preprocessing_fn=preprocessing_fn,
-            )
-            collection_with_ids = self.corpus_processor.process_corpus(
-                collection,
-                document_ids,
-                chunk_size=max_document_length,
-            )
-        else:
-            collection_with_ids = [
-                {"document_id": x, "content": y}
-                for x, y in zip(document_ids, collection)
-            ]
+    def _build_docid_metadata_map(
+        self,
+        document_ids: List[str], # Assumes these are the original document IDs
+        document_metadatas: Optional[List[Optional[dict]]],
+    ) -> Optional[Dict[str, Any]]:
+        if document_metadatas is None or not any(document_metadatas):
+            return None
+        
+        if not document_ids:
+            if self.verbose > 0:
+                print("Warning: _build_docid_metadata_map called with empty document_ids.")
+            return None
 
-        pid_docid_map = {
-            index: item["document_id"] for index, item in enumerate(collection_with_ids)
+        docid_metadata_map: Dict[str, Any] = {}
+        for i, doc_id in enumerate(document_ids):
+            if i < len(document_metadatas) and document_metadatas[i] is not None:
+                docid_metadata_map[doc_id] = document_metadatas[i]
+        
+        return docid_metadata_map if docid_metadata_map else None
+
+    def _prepare_documents_for_processing(
+        self,
+        documents: List[str],
+        document_ids: Optional[List[str]] = None,
+        document_metadatas: Optional[List[Optional[dict]]] = None,
+        **splitter_kwargs: Any,
+    ) -> Tuple[List[str], Dict[int, str], Optional[Dict[str, Any]]]:
+        """
+        Core document processing: splits documents, creates passage collection,
+        pid_docid_map, and docid_metadata_map.
+        """
+        final_original_doc_ids = document_ids if document_ids is not None else [str(uuid4()) for _ in documents]
+        if len(final_original_doc_ids) != len(documents):
+            raise ValueError("Mismatch between number of documents and provided document_ids.")
+        if len(set(final_original_doc_ids)) != len(final_original_doc_ids):
+            raise ValueError("Provided document_ids must be unique.")
+
+
+        processed_chunks_dicts: List[Dict] = self.corpus_processor.process_corpus(
+            documents=documents,
+            document_ids=final_original_doc_ids,
+            **splitter_kwargs,
+        )
+
+        if not processed_chunks_dicts:
+            return [], {}, None
+
+        collection_for_colbert: List[str] = [chunk['content'] for chunk in processed_chunks_dicts]
+        pid_docid_map_for_colbert: Dict[int, str] = {
+            i: chunk['document_id'] for i, chunk in enumerate(processed_chunks_dicts)
         }
-        collection = [x["content"] for x in collection_with_ids]
+        
+        docid_metadata_map_for_colbert = self._build_docid_metadata_map(
+            final_original_doc_ids, document_metadatas
+        )
 
-        return collection, pid_docid_map, docid_metadata_map
+        return collection_for_colbert, pid_docid_map_for_colbert, docid_metadata_map_for_colbert
 
     def index(
         self,
-        collection: list[str],
-        document_ids: Union[TypeVar("T"), List[TypeVar("T")]] = None,
-        document_metadatas: Optional[list[dict]] = None,
-        index_name: str = None,
-        overwrite_index: Union[bool, str] = True,
-        max_document_length: int = 256,
-        split_documents: bool = True,
-        document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
-        preprocessing_fn: Optional[Union[Callable, list[Callable]]] = None,
+        index_name: str,
+        documents: List[str],
+        document_ids: Optional[List[str]] = None,
+        document_metadatas: Optional[List[Optional[dict]]] = None,
+        max_document_length: int = 256, # Used as chunk_size by default splitter
+        overwrite_index: Union[bool, str] = "reuse",
         bsize: int = 32,
-        use_faiss: bool = False,
-    ):
-        """Build an index from a list of documents.
+        use_faiss_index: bool = False,
+        **colbert_index_kwargs: Any # For additional ColBERTConfig settings for this index
+    ) -> str:
+        """
+        Build an index from a list of documents for the specified index_name.
 
         Parameters:
-            collection (list[str]): The collection of documents to index.
-            document_ids (Optional[list[str]]): An optional list of document ids. Ids will be generated at index time if not supplied.
-            index_name (str): The name of the index that will be built.
-            overwrite_index (Union[bool, str]): Whether to overwrite an existing index with the same name.
-            max_document_length (int): The maximum length of a document. Documents longer than this will be split into chunks.
-            split_documents (bool): Whether to split documents into chunks.
-            document_splitter_fn (Optional[Callable]): A function to split documents into chunks. If None and by default, will use the llama_index_sentence_splitter.
-            preprocessing_fn (Optional[Union[Callable, list[Callable]]]): A function or list of functions to preprocess documents. If None and by default, will not preprocess documents.
-            bsize (int): The batch size to use for encoding the passages.
+            index_name: The name of the index to build or update.
+            documents: The list of documents (full texts) to index.
+            document_ids: Optional list of unique IDs for the original documents.
+            document_metadatas: Optional list of metadata dicts for original documents.
+            max_document_length: Target chunk size for splitting.
+            overwrite_index: Policy for overwriting if index exists ('reuse', True, False, 'force_silent_overwrite').
+            bsize: Batch size for ColBERT encoding.
+            use_faiss_index: Whether to use FAISS for the index backend (if applicable).
+            **colbert_index_kwargs: Additional kwargs for ColBERT's index method (e.g., nbits).
 
         Returns:
-            index (str): The path to the index that was built.
+            The path to the created or updated index.
         """
-        if not split_documents:
-            document_splitter_fn = None
-        collection, pid_docid_map, docid_metadata_map = self._process_corpus(
-            collection,
-            document_ids,
-            document_metadatas,
-            document_splitter_fn,
-            preprocessing_fn,
-            max_document_length,
+        if not documents:
+            if self.verbose > 0:
+                print(f"No documents provided for indexing '{index_name}'. Skipping.")
+            return self.model._get_index_path(index_name)
+
+        collection, pid_docid_map, docid_metadata_map = self._prepare_documents_for_processing(
+            documents, document_ids, document_metadatas, chunk_size=max_document_length
         )
+
+        if not collection:
+            if self.verbose > 0:
+                print(f"Document processing resulted in an empty collection for index '{index_name}'. Skipping ColBERT indexing.")
+            return self.model._get_index_path(index_name)
+
         return self.model.index(
-            collection,
+            index_name=index_name,
+            collection=collection,
             pid_docid_map=pid_docid_map,
             docid_metadata_map=docid_metadata_map,
-            index_name=index_name,
-            max_document_length=max_document_length,
+            max_document_length=max_document_length, # This influences ColBERTConfig.doc_maxlen for the index
             overwrite=overwrite_index,
             bsize=bsize,
-            use_faiss=use_faiss,
+            use_faiss=use_faiss_index,
+            **colbert_index_kwargs
         )
 
     def add_to_index(
         self,
-        new_collection: list[str],
-        new_document_ids: Optional[Union[TypeVar("T"), List[TypeVar("T")]]] = None,
-        new_document_metadatas: Optional[list[dict]] = None,
-        index_name: Optional[str] = None,
-        split_documents: bool = True,
-        document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
-        preprocessing_fn: Optional[Union[Callable, list[Callable]]] = None,
+        index_name: str,
+        new_documents: List[str],
+        new_document_ids: Optional[List[str]] = None,
+        new_document_metadatas: Optional[List[Optional[dict]]] = None,
         bsize: int = 32,
-        use_faiss: bool = False,
+        max_document_length: int = 256, # Target chunk size for splitting new documents
     ):
-        """Add documents to an existing index.
+        """
+        Add new documents to an existing index.
 
         Parameters:
-            new_collection (list[str]): The documents to add to the index.
-            new_document_metadatas (Optional[list[dict]]): An optional list of metadata dicts
-            index_name (Optional[str]): The name of the index to add documents to. If None and by default, will add documents to the already initialised one.
-            bsize (int): The batch size to use for encoding the passages.
+            index_name: The name of the index to add to.
+            new_documents: List of new documents (full texts) to add.
+            new_document_ids: Optional list of unique IDs for the new original documents.
+            new_document_metadatas: Optional list of metadata for new original documents.
+            bsize: Batch size for ColBERT encoding.
+            max_document_length: Target chunk size for splitting new documents.
         """
-        if not split_documents:
-            document_splitter_fn = None
+        if not new_documents:
+            if self.verbose > 0:
+                print(f"No new documents provided to add to index '{index_name}'. Skipping.")
+            return
 
-        (
-            new_collection,
-            new_pid_docid_map,
-            new_docid_metadata_map,
-        ) = self._process_corpus(
-            new_collection,
-            new_document_ids,
-            new_document_metadatas,
-            document_splitter_fn,
-            preprocessing_fn,
-            self.model.config.doc_maxlen,
-        )
+        # chunk_size for splitter from max_document_length
+        passages_for_colbert, pid_to_docid_for_new_batch, docid_to_metadata_for_new_batch = \
+            self._prepare_documents_for_processing(
+                new_documents, new_document_ids, new_document_metadatas, chunk_size=max_document_length
+            )
+
+        if not passages_for_colbert:
+            if self.verbose > 0:
+                print(f"Processing new documents for index '{index_name}' resulted in no passages. Nothing to add.")
+            return
 
         self.model.add_to_index(
-            new_collection,
-            new_pid_docid_map,
-            new_docid_metadata_map=new_docid_metadata_map,
             index_name=index_name,
+            new_documents=passages_for_colbert,
+            new_pid_docid_map_for_new_docs=pid_to_docid_for_new_batch,
+            new_docid_metadata_map=docid_to_metadata_for_new_batch,
             bsize=bsize,
-            use_faiss=use_faiss,
         )
 
     def delete_from_index(
         self,
-        document_ids: Union[TypeVar("T"), List[TypeVar("T")]],
-        index_name: Optional[str] = None,
+        index_name: str,
+        document_ids: Union[str, List[str]],
     ):
-        """Delete documents from an index by their IDs.
+        """
+        Delete documents (and all their associated passages) from a specified index.
 
         Parameters:
-            document_ids (Union[TypeVar("T"), List[TypeVar("T")]]): The IDs of the documents to delete.
-            index_name (Optional[str]): The name of the index to delete documents from. If None and by default, will delete documents from the already initialised one.
+            index_name: The name of the index from which to delete.
+            document_ids: A single document ID or a list of document IDs to delete.
         """
-        self.model.delete_from_index(
-            document_ids,
-            index_name=index_name,
-        )
+        doc_ids_list = [document_ids] if isinstance(document_ids, str) else document_ids
+        if not doc_ids_list:
+            if self.verbose > 0:
+                print(f"No document IDs provided for deletion from index '{index_name}'. Skipping.")
+            return
+        self.model.delete_from_index(index_name=index_name, document_ids=doc_ids_list)
 
     def search(
         self,
-        query: Union[str, list[str]],
-        index_name: Optional["str"] = None,
+        index_name: str,
+        query: Union[str, List[str]],
         k: int = 10,
         force_fast: bool = False,
         zero_index_ranks: bool = False,
-        doc_ids: Optional[list[str]] = None,
-        **kwargs,
-    ):
-        """Query an index.
+        doc_ids_filter: Optional[List[str]] = None,
+    ) -> Union[List[dict], List[List[dict]]]:
+        """
+        Search an index for a given query or list of queries.
 
         Parameters:
-            query (Union[str, list[str]]): The query or list of queries to search for.
-            index_name (Optional[str]): Provide the name of an index to query. If None and by default, will query an already initialised one.
-            k (int): The number of results to return for each query.
-            force_fast (bool): Whether to force the use of a faster but less accurate search method.
-            zero_index_ranks (bool): Whether to zero the index ranks of the results. By default, result rank 1 is the highest ranked result
+            index_name: The name of the index to search.
+            query: The query string or list of query strings.
+            k: The number of results to return per query.
+            force_fast: Use faster, potentially less accurate search settings.
+            zero_index_ranks: If True, ranks are 0-indexed. Otherwise 1-indexed.
+            doc_ids_filter: Optional list of document IDs to restrict the search to.
 
         Returns:
-            results (Union[list[dict], list[list[dict]]]): A list of dict containing individual results for each query. If a list of queries is provided, returns a list of lists of dicts. Each result is a dict with keys `content`, `score`, `rank`, and 'document_id'. If metadata was indexed for the document, it will be returned under the "document_metadata" key.
-
-        Individual results are always in the format:
-        ```python3
-        {"content": "text of the relevant passage", "score": 0.123456, "rank": 1, "document_id": "x"}
-        ```
-        or
-        ```python3
-        {"content": "text of the relevant passage", "score": 0.123456, "rank": 1, "document_id": "x", "document_metadata": {"metadata_key": "metadata_value", ...}}
-        ```
-
+            A list of result dictionaries for a single query, or a list of lists of
+            result dictionaries for multiple queries.
         """
         return self.model.search(
-            query=query,
             index_name=index_name,
+            query=query,
             k=k,
             force_fast=force_fast,
             zero_index_ranks=zero_index_ranks,
-            doc_ids=doc_ids,
-            **kwargs,
+            doc_ids=doc_ids_filter,
         )
 
     def rerank(
         self,
-        query: Union[str, list[str]],
-        documents: list[str],
+        query: str,
+        documents: List[str],
         k: int = 10,
         zero_index_ranks: bool = False,
         bsize: Union[Literal["auto"], int] = "auto",
-    ):
-        """Encode documents and rerank them in-memory. Performance degrades rapidly with more documents.
+        max_tokens: Union[Literal["auto"], int] = "auto",
+    ) -> List[dict]:
+        """
+        Rerank a list of documents in-memory for a given query.
 
         Parameters:
-            query (Union[str, list[str]]): The query or list of queries to search for.
-            documents (list[str]): The documents to rerank.
-            k (int): The number of results to return for each query.
-            zero_index_ranks (bool): Whether to zero the index ranks of the results. By default, result rank 1 is the highest ranked result
-            bsize (int): The batch size to use for re-ranking.
+            query: The query string.
+            documents: A list of document contents (passages) to rerank.
+            k: The number of top documents to return.
+            zero_index_ranks: If True, ranks are 0-indexed.
+            bsize: Batch size for encoding.
+            max_tokens: Max tokens for document encoding during this operation.
 
         Returns:
-            results (Union[list[dict], list[list[dict]]]): A list of dict containing individual results for each query. If a list of queries is provided, returns a list of lists of dicts. Each result is a dict with keys `content`, `score` and `rank`.
-
-        Individual results are always in the format:
-        ```python3
-        {"content": "text of the relevant passage", "score": 0.123456, "rank": 1}
-        ```
+            A list of reranked result dictionaries.
         """
-
         return self.model.rank(
             query=query,
             documents=documents,
             k=k,
             zero_index_ranks=zero_index_ranks,
             bsize=bsize,
+            max_tokens=max_tokens,
         )
 
     def encode(
         self,
-        documents: list[str],
-        bsize: Union[Literal["auto"], int] = "auto",
-        document_metadatas: Optional[list[dict]] = None,
-        verbose: bool = True,
-        max_document_length: Union[Literal["auto"], int] = "auto",
+        documents: List[str],
+        document_metadatas: Optional[List[Optional[dict]]] = None,
+        bsize: int = 32,
+        max_tokens: Union[Literal["auto"], int] = "auto",
+        verbose_override: Optional[bool] = None,
     ):
-        """Encode documents in memory to be searched through with no Index. Performance degrades rapidly with more documents.
+        """
+        Encode documents and cache their embeddings in memory for later
+        `search_encoded_docs` calls.
 
         Parameters:
-            documents (list[str]): The documents to encode.
-            bsize (int): The batch size to use for encoding.
-            document_metadatas (Optional[list[dict]]): An optional list of metadata dicts. Each entry must correspond to a document.
+            documents: List of document contents to encode.
+            document_metadatas: Optional list of metadata dicts, matched to documents.
+            bsize: Batch size for encoding.
+            max_tokens: Max tokens for document encoding. 'auto' adjusts based on content.
+            verbose_override: Override instance verbosity for this call.
         """
-        if verbose:
-            print(f"Encoding {len(documents)} documents...")
         self.model.encode(
             documents=documents,
-            bsize=bsize,
             document_metadatas=document_metadatas,
-            verbose=verbose,
-            max_tokens=max_document_length,
+            bsize=bsize,
+            max_tokens=max_tokens,
+            verbose_override=verbose_override,
         )
-        if verbose:
-            print("Documents encoded!")
 
     def search_encoded_docs(
         self,
-        query: Union[str, list[str]],
+        queries: Union[str, List[str]],
         k: int = 10,
         bsize: int = 32,
-    ) -> list[dict[str, Any]]:
-        """Search through documents encoded in-memory.
+        zero_index_ranks: bool = False,
+    ) -> Union[List[dict], List[List[dict]]]:
+        """
+        Search through documents previously encoded and cached in memory via `encode()`.
 
         Parameters:
-            query (Union[str, list[str]]): The query or list of queries to search for.
-            k (int): The number of results to return for each query.
-            batch_size (int): The batch size to use for searching.
+            queries: The query string or list of query strings.
+            k: The number of results to return per query.
+            bsize: Batch size for query encoding.
+            zero_index_ranks: If True, ranks are 0-indexed.
 
         Returns:
-            results (list[dict[str, Any]]): A list of dict containing individual results for each query. If a list of queries is provided, returns a list of lists of dicts.
+            Search results, similar to the `search` method.
         """
         return self.model.search_encoded_docs(
-            queries=query,
-            k=k,
-            bsize=bsize,
+            queries=queries, k=k, bsize=bsize, zero_index_ranks=zero_index_ranks
         )
 
     def clear_encoded_docs(self, force: bool = False):
-        """Clear documents encoded in-memory.
+        """
+        Clear any documents and their embeddings cached in memory by `encode()`.
 
         Parameters:
-            force (bool): Whether to force the clearing of encoded documents without enforcing a 10s wait time.
+            force: If True, clears without a confirmation delay.
         """
         self.model.clear_encoded_docs(force=force)
 
-    #def as_langchain_retriever(self, **kwargs: Any) -> BaseRetriever:
-    #    return RAGatouilleLangChainRetriever(model=self, kwargs=kwargs)
-
-    #def as_langchain_document_compressor(
-    #    self, k: int = 5, **kwargs: Any
-    #) -> BaseDocumentCompressor:
-    #    return RAGatouilleLangChainCompressor(model=self, k=k, kwargs=kwargs)
+    def get_model(self) -> ColBERT:
+        """Returns the underlying ColBERT model instance."""
+        return self.model

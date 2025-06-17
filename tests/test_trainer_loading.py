@@ -1,16 +1,17 @@
+import pytest
 from colbert.infra import ColBERTConfig
 
 from ragatouille import RAGTrainer
 
 
-def test_finetune():
+def test_finetune(tmp_path):
     """Ensure that the initially loaded config is the one from the pretrained model."""
     trainer = RAGTrainer(
         model_name="test",
         pretrained_model_name="colbert-ir/colbertv2.0",
         language_code="en",
     )
-    trainer_config = trainer.model.config
+    trainer_config = trainer.model.base_model_config
 
     assert ColBERTConfig() != trainer_config
     assert trainer_config.query_token == "[Q]"
@@ -25,14 +26,14 @@ def test_finetune():
     assert trainer_config.name == "kldR2.nway64.ib"
 
 
-def test_raw_model():
+def test_raw_model(tmp_path):
     """Ensure that the default ColBERT configuration is properly loaded when initialising from a BERT-like model"""  # noqa: E501
     trainer = RAGTrainer(
         model_name="test",
         pretrained_model_name="bert-base-uncased",
         language_code="en",
     )
-    trainer_config = trainer.model.config
+    trainer_config = trainer.model.base_model_config
 
     default_config = ColBERTConfig()
 

@@ -332,6 +332,8 @@ class PLAIDModelIndex(ModelIndex):
         base_ncells = self.searcher.config.ncells
         base_ndocs = self.searcher.config.ndocs
 
+        print("COLLECTION", self.searcher.collection.data)
+
         if k > len(self.searcher.collection):
             print(
                 "WARNING: k value is larger than the number of documents in the index!",
@@ -386,32 +388,58 @@ class PLAIDModelIndex(ModelIndex):
         searcher = Searcher(
             checkpoint=checkpoint,
             config=None,
-            collection=collection,
+            collection=collection, # This `collection` is the full final collection (old + new)
             index=index_name,
-            index_root=index_root,
-            verbose=verbose,
+            index_root=index_root, # This should be consistent with self.config.root
+            verbose=False, # Less verbose for this temporary searcher
         )
 
-        if PLAIDModelIndex._should_rebuild(
-            len(searcher.collection), len(new_collection)
-        ):
+        old_collection_len = len(collection) - len(new_collection)
+
+        if PLAIDModelIndex._should_rebuild(old_collection_len, len(new_collection)):
+            if verbose:
+                print(f"Rebuilding index {index_name} due to new additions. Old size: {old_collection_len}, New passages: {len(new_collection)}")
+            # build needs the full, final collection
             self.build(
                 checkpoint=checkpoint,
-                collection=collection + new_collection,
+                collection=collection, # This is already the final combined collection
                 index_name=index_name,
                 overwrite="force_silent_overwrite",
                 verbose=verbose,
-                **kwargs,
+                **kwargs, # Pass bsize (already in self.config.index_bsize if updated), use_faiss etc. to build
             )
         else:
-            if self.config.index_bsize != bsize:  # Update bsize if it's different
-                self.config.index_bsize = bsize
+            if verbose:
+                print(f"Updating existing index {index_name} with {len(new_collection)} new passages.")
+            # IndexUpdater needs a searcher that reflects the state of the index *before* adding new_collection.
+            # This searcher is used for its configuration and to point to the existing index parts.
+            collection_before_add = collection[:-len(new_collection)] if old_collection_len > 0 else []
 
-            updater = IndexUpdater(
-                config=self.config, searcher=searcher, checkpoint=checkpoint
+            # Initialize a searcher context for the IndexUpdater
+            # This searcher should point to the index *as it exists on disk before this update*
+            searcher_for_updater_config = ColBERTConfig.from_existing(self.config, ColBERTConfig())
+            searcher_for_updater_config.root = index_root # ensure it points to the correct place.
+            searcher_for_updater_config.index_name = index_name
+
+            searcher_for_updater = Searcher(
+                checkpoint=checkpoint,
+                config=searcher_for_updater_config,
+                collection=collection_before_add, # Collection before adding new docs
+                index=index_name, # Redundant if in config, but safe
+                # index_root is implicitly handled by searcher_for_updater_config.root
+                verbose=False, 
             )
-            updater.add(new_collection)
+            updater = IndexUpdater(
+                config=self.config, # This config has potentially updated bsize
+                searcher=searcher_for_updater,
+                checkpoint=checkpoint
+            )
+            updater.add(new_collection) # updater.add processes only the new docs
             updater.persist_to_disk()
+        
+        self.searcher = None # Invalidate the main searcher for PLAIDModelIndex
+        if verbose:
+            print(f"Finished add operation for index {index_name}. Searcher invalidated, will reload on next search.")
 
     def delete(
         self,
@@ -428,14 +456,19 @@ class PLAIDModelIndex(ModelIndex):
         searcher = Searcher(
             checkpoint=checkpoint,
             config=None,
-            collection=collection,
+            collection=collection, # The collection as it is *before* these pids are removed
             index=index_name,
-            verbose=verbose,
+            index_root=self.config.root, # ensure consistency with self.config
+            verbose=verbose, # can be verbose
         )
         updater = IndexUpdater(config=config, searcher=searcher, checkpoint=checkpoint)
 
         updater.remove(pids_to_remove)
         updater.persist_to_disk()
+        
+        self.searcher = None # Invalidate the main searcher for PLAIDModelIndex
+        if verbose:
+            print(f"Finished delete operation for index {index_name}. Searcher invalidated, will reload on next search.")
 
     def _export_config(self) -> dict[str, Any]:
         return {}
