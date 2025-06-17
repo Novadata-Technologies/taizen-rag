@@ -388,7 +388,7 @@ class ColBERT(LateInteractionModel):
         if new_docid_metadata_map:
             # current_docid_metadata_map is guaranteed to be a dict here
             current_docid_metadata_map.update(new_docid_metadata_map)
-
+        
         self.collections[index_name] = current_collection
         self.pid_docid_maps[index_name] = current_pid_docid_map
         self.docid_metadata_maps[index_name] = current_docid_metadata_map
