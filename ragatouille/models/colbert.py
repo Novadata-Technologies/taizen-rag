@@ -26,7 +26,8 @@ class ColBERT(LateInteractionModel):
         n_gpu: int = -1,
         verbose: int = 1,
         initial_index_name: Optional[str] = None,
-        experiment_name: str = "colbert", # Default experiment name
+        experiment_name: str = "colbert",
+        training_mode: bool = False,
         **kwargs, # Catch-all for other ColBERTConfig settings for new indices
     ):
         self.verbose = verbose
@@ -52,8 +53,14 @@ class ColBERT(LateInteractionModel):
         # For new indices, this base_config will be the starting point
         self.base_model_config = ColBERTConfig.load_from_checkpoint(
             str(pretrained_model_name_or_path),
-            **kwargs # Pass other ColBERTConfig settings
+            **kwargs
         )
+        if self.base_model_config is None:
+            local_config = ColBERTConfig(**kwargs)
+            self.base_model_config = ColBERTConfig.from_existing(
+                None,
+                local_config,
+            )
         self.base_model_config.root = str(Path(self.index_root) / self.experiment_name / "indexes")
         self.base_model_config.experiment = self.experiment_name
 
@@ -63,13 +70,14 @@ class ColBERT(LateInteractionModel):
             nranks=n_gpu, experiment=self.experiment_name, root=self.index_root
         )
 
-        # Load the actual inference model weights (once)
-        self.inference_ckpt = Checkpoint(
-            str(self.base_pretrained_model_name_or_path), colbert_config=self.base_model_config
-        )
-        self.base_model_max_tokens = (
-            self.inference_ckpt.bert.config.max_position_embeddings
-        ) - 4 # Standard adjustment
+        if not training_mode:
+            # Load the actual inference model weights (once)
+            self.inference_ckpt = Checkpoint(
+                str(self.base_pretrained_model_name_or_path), colbert_config=self.base_model_config
+            )
+            self.base_model_max_tokens = (
+                self.inference_ckpt.bert.config.max_position_embeddings
+            ) - 4 # Standard adjustment
 
         self.run_context = Run().context(self.run_config)
         self.run_context.__enter__()  # Manually enter the context
@@ -380,7 +388,7 @@ class ColBERT(LateInteractionModel):
         if new_docid_metadata_map:
             # current_docid_metadata_map is guaranteed to be a dict here
             current_docid_metadata_map.update(new_docid_metadata_map)
-        
+
         self.collections[index_name] = current_collection
         self.pid_docid_maps[index_name] = current_pid_docid_map
         self.docid_metadata_maps[index_name] = current_docid_metadata_map

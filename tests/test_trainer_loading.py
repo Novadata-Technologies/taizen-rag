@@ -11,7 +11,7 @@ def test_finetune(tmp_path):
         pretrained_model_name="colbert-ir/colbertv2.0",
         language_code="en",
     )
-    trainer_config = trainer.model.config
+    trainer_config = trainer.model.base_model_config
 
     assert ColBERTConfig() != trainer_config
     assert trainer_config.query_token == "[Q]"
@@ -33,7 +33,7 @@ def test_raw_model(tmp_path):
         pretrained_model_name="bert-base-uncased",
         language_code="en",
     )
-    trainer_config = trainer.model.config
+    trainer_config = trainer.model.base_model_config
 
     default_config = ColBERTConfig()
 
