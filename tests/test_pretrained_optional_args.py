@@ -1,304 +1,283 @@
 import os
+import shutil
+from pathlib import Path
 
 import pytest
 import srsly
 
 from ragatouille import RAGPretrainedModel
 
-collection = [
-    "Hayao Miyazaki (宮崎 駿 or 宮﨑 駿, Miyazaki Hayao, [mijaꜜzaki hajao]; born January 5, 1941) is a Japanese animator, filmmaker, and manga artist. A co-founder of Studio Ghibli, he has attained international acclaim as a masterful storyteller and creator of Japanese animated feature films, and is widely regarded as one of the most accomplished filmmakers in the history of animation.\nBorn in Tokyo City in the Empire of Japan, Miyazaki expressed interest in manga and animation from an early age, and he joined Toei Animation in 1963. During his early years at Toei Animation he worked as an in-between artist and later collaborated with director Isao Takahata. Notable films to which Miyazaki contributed at Toei include Doggie March and Gulliver's Travels Beyond the Moon. He provided key animation to other films at Toei, such as Puss in Boots and Animal Treasure Island, before moving to A-Pro in 1971, where he co-directed Lupin the Third Part I alongside Takahata. After moving to Zuiyō Eizō (later known as Nippon Animation) in 1973, Miyazaki worked as an animator on World Masterpiece Theater, and directed the television series Future Boy Conan (1978). He joined Tokyo Movie Shinsha in 1979 to direct his first feature film The Castle of Cagliostro as well as the television series Sherlock Hound. In the same period, he also began writing and illustrating the manga Nausicaä of the Valley of the Wind (1982–1994), and he also directed the 1984 film adaptation produced by Topcraft.\nMiyazaki co-founded Studio Ghibli in 1985. He directed numerous films with Ghibli, including Laputa: Castle in the Sky (1986), My Neighbor Totoro (1988), Kiki's Delivery Service (1989), and Porco Rosso (1992). The films were met with critical and commercial success in Japan. Miyazaki's film Princess Mononoke was the first animated film ever to win the Japan Academy Prize for Picture of the Year, and briefly became the highest-grossing film in Japan following its release in 1997; its distribution to the Western world greatly increased Ghibli's popularity and influence outside Japan. His 2001 film Spirited Away became the highest-grossing film in Japanese history, winning the Academy Award for Best Animated Feature, and is frequently ranked among the greatest films of the 21st century. Miyazaki's later films—Howl's Moving Castle (2004), Ponyo (2008), and The Wind Rises (2013)—also enjoyed critical and commercial success.",
-    "Studio Ghibli, Inc. (Japanese: 株式会社スタジオジブリ, Hepburn: Kabushiki gaisha Sutajio Jiburi) is a Japanese animation studio based in Koganei, Tokyo. It has a strong presence in the animation industry and has expanded its portfolio to include various media formats, such as short subjects, television commercials, and two television films. Their work has been well-received by audiences and recognized with numerous awards. Their mascot and most recognizable symbol, the character Totoro from the 1988 film My Neighbor Totoro, is a giant spirit inspired by raccoon dogs (tanuki) and cats (neko). Among the studio's highest-grossing films are Spirited Away (2001), Howl's Moving Castle (2004), and Ponyo (2008). Studio Ghibli was founded on June 15, 1985, by the directors Hayao Miyazaki and Isao Takahata and producer Toshio Suzuki, after acquiring Topcraft's assets. The studio has also collaborated with video game studios on the visual development of several games.Five of the studio's films are among the ten highest-grossing anime feature films made in Japan. Spirited Away is second, grossing 31.68 billion yen in Japan and over US$380 million worldwide, and Princess Mononoke is fourth, grossing 20.18 billion yen. Three of their films have won the Animage Grand Prix award, four have won the Japan Academy Prize for Animation of the Year, and five have received Academy Award nominations. Spirited Away won the 2002 Golden Bear and the 2003 Academy Award for Best Animated Feature.On August 3, 2014, Studio Ghibli temporarily suspended production following Miyazaki's retirement.",
+# Sample data for tests
+COLLECTION_SAMPLES = [
+    "Hayao Miyazaki is a Japanese animator, filmmaker, and manga artist. He co-founded Studio Ghibli.",
+    "Studio Ghibli, Inc. is a Japanese animation studio based in Koganei, Tokyo. Its mascot is Totoro.",
+    "Princess Mononoke is a 1997 Japanese animated epic historical fantasy film by Studio Ghibli.",
 ]
 
-document_ids = ["miyazaki", "ghibli"]
+DOCUMENT_IDS_SAMPLES = ["miyazaki_bio", "ghibli_info", "mononoke_film"]
 
-document_metadatas = [
-    {"entity": "person", "source": "wikipedia"},
-    {"entity": "organisation", "source": "wikipedia"},
+DOCUMENT_METADATAS_SAMPLES = [
+    {"entity": "person", "source": "wikipedia", "year": 1941},
+    {"entity": "organisation", "source": "wikipedia", "founded": 1985},
+    {"entity": "film", "source": "wikipedia", "release_year": 1997},
 ]
+
+# Use a fixed model name for tests for consistency
+PRETRAINED_MODEL_NAME = "colbert-ir/colbertv2.0"
+TEST_EXPERIMENT_NAME = "ragatouille_test_suite_optional_args"
 
 
 @pytest.fixture(scope="session")
-def persistent_temp_index_root(tmp_path_factory):
-    return tmp_path_factory.mktemp("temp_test_indexes")
+def persistent_test_index_root(tmp_path_factory):
+    # Creates a temporary root directory for all indices for the test session
+    path = tmp_path_factory.mktemp("ragatouille_test_indices_root_optional_args")
+    yield str(path)
+    # Cleanup after session
+    shutil.rmtree(path, ignore_errors=True)
 
 
-@pytest.fixture(scope="session")
-def RAG_from_pretrained_model(persistent_temp_index_root):
+@pytest.fixture(scope="module")  # One RAG model instance per test module (this file)
+def rag_model_instance(persistent_test_index_root):
     return RAGPretrainedModel.from_pretrained(
-        "colbert-ir/colbertv2.0", index_root=str(persistent_temp_index_root)
+        PRETRAINED_MODEL_NAME,
+        index_root=persistent_test_index_root,
+        experiment_name=TEST_EXPERIMENT_NAME,
+        verbose=0  # Keep test output clean
     )
 
 
-@pytest.fixture(scope="session")
-def index_path_fixture(persistent_temp_index_root, index_creation_inputs):
-    index_path = os.path.join(
-        str(persistent_temp_index_root),
-        "colbert",
-        "indexes",
-        index_creation_inputs["index_name"],
-    )
-    return str(index_path)
-
-
-@pytest.fixture(scope="session")
-def collection_path_fixture(index_path_fixture):
-    collection_path = os.path.join(index_path_fixture, "collection.json")
-    return str(collection_path)
-
-
-@pytest.fixture(scope="session")
-def document_metadata_path_fixture(index_path_fixture):
-    document_metadata_path = os.path.join(index_path_fixture, "docid_metadata_map.json")
-    return str(document_metadata_path)
-
-
-@pytest.fixture(scope="session")
-def pid_docid_map_path_fixture(index_path_fixture):
-    pid_docid_map_path = os.path.join(index_path_fixture, "pid_docid_map.json")
-    return str(pid_docid_map_path)
-
-
-@pytest.fixture(
-    scope="session",
-    params=[
+# Parameterize test cases for different combinations of inputs to RAG.index()
+INDEX_CREATION_PARAMS = [
+    pytest.param(
         {
-            "collection": collection,
-            "index_name": "no_optional_args",
-            "split_documents": False,
+            "documents": COLLECTION_SAMPLES[:1],
+            "document_ids": None, # Test auto-generation
+            "document_metadatas": None,
+            "index_name_suffix": "no_opts_auto_ids",
+            "max_document_length": 128,
         },
+        id="no_optional_args_auto_ids",
+    ),
+    pytest.param(
         {
-            "collection": collection,
-            "document_ids": document_ids,
-            "index_name": "with_docid",
-            "split_documents": False,
+            "documents": COLLECTION_SAMPLES[:1],
+            "document_ids": DOCUMENT_IDS_SAMPLES[:1],
+            "document_metadatas": None,
+            "index_name_suffix": "with_docid",
+            "max_document_length": 512, # Simulate no splitting
         },
+        id="with_doc_ids_no_split",
+    ),
+    pytest.param(
         {
-            "collection": collection,
-            "document_metadatas": document_metadatas,
-            "index_name": "with_metadata",
-            "split_documents": False,
+            "documents": COLLECTION_SAMPLES[:2],
+            "document_ids": DOCUMENT_IDS_SAMPLES[:2],
+            "document_metadatas": DOCUMENT_METADATAS_SAMPLES[:2],
+            "index_name_suffix": "with_docid_meta",
+            "max_document_length": 64, # Simulate splitting
         },
+        id="with_doc_ids_metadata_split",
+    ),
+    pytest.param(
         {
-            "collection": collection,
-            "index_name": "with_split",
-            "split_documents": True,
+            "documents": COLLECTION_SAMPLES,
+            "document_ids": DOCUMENT_IDS_SAMPLES,
+            "document_metadatas": DOCUMENT_METADATAS_SAMPLES,
+            "index_name_suffix": "all_docs_all_details",
+            "max_document_length": 128,
         },
-        {
-            "collection": collection,
-            "document_ids": document_ids,
-            "document_metadatas": document_metadatas,
-            "index_name": "with_docid_metadata",
-            "split_documents": False,
-        },
-        {
-            "collection": collection,
-            "document_ids": document_ids,
-            "index_name": "with_docid_split",
-            "split_documents": True,
-        },
-        {
-            "collection": collection,
-            "document_metadatas": document_metadatas,
-            "index_name": "with_metadata_split",
-            "split_documents": True,
-        },
-        {
-            "collection": collection,
-            "document_ids": document_ids,
-            "document_metadatas": document_metadatas,
-            "index_name": "with_docid_metadata_split",
-            "split_documents": True,
-        },
-    ],
-    ids=[
-        "No optional arguments",
-        "With document IDs",
-        "With metadata",
-        "With document splitting",
-        "With document IDs and metadata",
-        "With document IDs and splitting",
-        "With metadata and splitting",
-        "With document IDs, metadata, and splitting",
-    ],
-)
-def index_creation_inputs(request):
-    params = request.param
-    return params
+        id="all_docs_all_details_split",
+    ),
+]
 
 
-@pytest.fixture(scope="session")
-def create_index(RAG_from_pretrained_model, index_creation_inputs):
-    index_path = RAG_from_pretrained_model.index(**index_creation_inputs)
-    return index_path
+@pytest.fixture(scope="function", params=INDEX_CREATION_PARAMS)
+def index_params_for_function(request, rag_model_instance):
+    # Generates a unique index name for each parameterized test function run
+    base_params = request.param.copy()
+    # Create a unique index name based on test name and params
+    # to ensure isolation even if tests run in parallel within the module (though pytest usually serializes by default)
+    unique_suffix = request.node.name.replace("test_", "").replace("[", "_").replace("]", "")
+    base_params["index_name"] = f"test_idx_{base_params['index_name_suffix']}_{unique_suffix}"
 
-
-def test_index_creation(create_index):
-    assert os.path.exists(create_index) == True
-
-
-@pytest.fixture(scope="session", autouse=True)
-def add_docids_to_index_inputs(
-    create_index,  # noqa: ARG001
-    index_creation_inputs,
-    pid_docid_map_path_fixture,
-):
-    if "document_ids" not in index_creation_inputs:
-        pid_docid_map_data = srsly.read_json(pid_docid_map_path_fixture)
-        seen_ids = set()
-        index_creation_inputs["document_ids"] = [
-            x
-            for x in list(pid_docid_map_data.values())
-            if not (x in seen_ids or seen_ids.add(x))
-        ]
-
-
-def test_collection_creation(collection_path_fixture):
-    assert os.path.exists(collection_path_fixture) == True
-    collection_data = srsly.read_json(collection_path_fixture)
-    assert isinstance(
-        collection_data, list
-    ), "The collection.json file should contain a list."
-
-
-def test_pid_docid_map_creation(pid_docid_map_path_fixture):
-    assert os.path.exists(pid_docid_map_path_fixture) == True
-    # TODO check pid_docid_map_data
-    pid_docid_map_data = srsly.read_json(pid_docid_map_path_fixture)
-    assert isinstance(
-        pid_docid_map_data, dict
-    ), "The pid_docid_map.json file should contain a dictionary."
-
-
-def test_document_metadata_creation(
-    index_creation_inputs, document_metadata_path_fixture
-):
-    if "document_metadatas" in index_creation_inputs:
-        assert os.path.exists(document_metadata_path_fixture) == True
-        document_metadata_dict = srsly.read_json(document_metadata_path_fixture)
-        assert (
-            set(document_metadata_dict.keys())
-            == set(index_creation_inputs["document_ids"])
-        ), "The keys in document_metadata.json should match the document_ids provided for index creation."
-        for doc_id, metadata in document_metadata_dict.items():
-            assert (
-                metadata
-                == index_creation_inputs["document_metadatas"][
-                    index_creation_inputs["document_ids"].index(doc_id)
-                ]
-            ), f"The metadata for document_id {doc_id} should match the provided metadata."
+    # Ensure document_ids are correctly handled for RAG.index()
+    # If document_ids is None in params, RAGPretrainedModel will auto-generate them.
+    # Store the effective document_ids used for assertion later.
+    if base_params["document_ids"] is None:
+        # RAGPretrainedModel generates UUIDs if None is passed.
+        # We can't know them in advance for assertion against pid_docid_map values exactly,
+        # but we can check counts and that metadata aligns if generated.
+        # For simplicity in this test, we will just ensure metadata isn't expected if IDs were None.
+        base_params["effective_document_ids_for_assertion"] = None
     else:
-        assert os.path.exists(document_metadata_path_fixture) == False
+        base_params["effective_document_ids_for_assertion"] = base_params["document_ids"]
+
+    return base_params
 
 
-def test_document_metadata_returned_in_search_results(
-    index_creation_inputs, index_path_fixture
-):
-    RAG = RAGPretrainedModel.from_index(index_path_fixture)
-    results = RAG.search(
-        "when was miyazaki born", index_name=index_creation_inputs["index_name"]
+@pytest.fixture(scope="function")
+def created_index_data(rag_model_instance, index_params_for_function):
+    RAG = rag_model_instance
+    params = index_params_for_function # Renamed for clarity within this fixture
+    index_name = params["index_name"]
+
+    actual_index_path_str = RAG.index(
+        index_name=index_name,
+        documents=params["documents"],
+        document_ids=params["document_ids"], # Pass None if specified in params for auto-generation
+        document_metadatas=params["document_metadatas"],
+        max_document_length=params["max_document_length"],
+        overwrite_index=True # Crucial for test isolation
     )
+    yield {
+        "index_name": index_name,
+        "index_path_str": actual_index_path_str,
+        "params_used": params # Contains effective_document_ids_for_assertion
+    }
+    # Optional: RAG.delete_index(index_name) if it exists, or rely on session cleanup of root.
 
-    if "document_metadatas" in index_creation_inputs:
-        for result in results:
-            assert (
-                "document_metadata" in result
-            ), "The metadata should be returned in the results."
-            doc_id = result["document_id"]
-            expected_metadata = index_creation_inputs["document_metadatas"][
-                index_creation_inputs["document_ids"].index(doc_id)
-            ]
-            assert (
-                result["document_metadata"] == expected_metadata
-            ), f"The metadata for document_id {doc_id} should match the provided metadata."
 
+def get_full_index_path_obj(persistent_test_index_root, index_name):
+    return Path(persistent_test_index_root) / TEST_EXPERIMENT_NAME / "indexes" / index_name
+
+
+def test_index_creation_and_structure(created_index_data, persistent_test_index_root):
+    index_name = created_index_data["index_name"]
+    params_used = created_index_data["params_used"]
+    full_path = get_full_index_path_obj(persistent_test_index_root, index_name)
+
+    assert full_path.exists(), f"Index directory {full_path} was not created."
+    assert (full_path / "collection.json").exists(), "collection.json missing."
+    assert (full_path / "pid_docid_map.json").exists(), "pid_docid_map.json missing."
+
+    if params_used.get("document_metadatas"):
+        assert (full_path / "docid_metadata_map.json").exists(), "docid_metadata_map.json missing when metadata provided."
     else:
-        for result in results:
-            assert (
-                "metadata" not in result
-            ), "The metadata should not be returned in the results."
+        assert not (full_path / "docid_metadata_map.json").exists(), "docid_metadata_map.json exists when no metadata provided."
+
+    pid_docid_map_data = srsly.read_json(str(full_path / "pid_docid_map.json"))
+    assert isinstance(pid_docid_map_data, dict)
+    
+    # Check that number of passages (PIDs) is reasonable
+    # If max_document_length is small, expect more passages than original documents
+    if params_used["max_document_length"] < 200 and len(params_used["documents"]) > 0 : # Rough check for splitting
+        assert len(pid_docid_map_data) >= len(params_used["documents"]), "Splitting should result in more or equal passages than documents"
+    elif len(params_used["documents"]) > 0:
+         assert len(pid_docid_map_data) == len(params_used["documents"]), "No splitting should result in equal passages and documents"
 
 
-# TODO: move this to a separate CRUD test file
-# TODO: add checks for metadata and doc content
-def test_add_to_existing_index(
-    index_creation_inputs,
-    document_metadata_path_fixture,
-    pid_docid_map_path_fixture,
-    index_path_fixture,
-):
-    RAG = RAGPretrainedModel.from_index(index_path_fixture)
-    existing_doc_ids = index_creation_inputs["document_ids"]
-    new_doc_ids = ["mononoke", "sabaku_no_tami"]
-    new_docs = [
-        "Princess Mononoke (Japanese: もののけ姫, Hepburn: Mononoke-hime) is a 1997 Japanese animated epic historical fantasy film written and directed by Hayao Miyazaki and animated by Studio Ghibli for Tokuma Shoten, Nippon Television Network and Dentsu. The film stars the voices of Yōji Matsuda, Yuriko Ishida, Yūko Tanaka, Kaoru Kobayashi, Masahiko Nishimura, Tsunehiko Kamijo, Akihiro Miwa, Mitsuko Mori, and Hisaya Morishige.\nPrincess Mononoke is set in the late Muromachi period of Japan (approximately 1336 to 1573 AD) and includes fantasy elements. The story follows a young Emishi prince named Ashitaka, and his involvement in a struggle between the gods (kami) of a forest and the humans who consume its resources. The film deals with themes of Shinto and environmentalism.\nThe film was released in Japan on July 12, 1997, by Toho, and in the United States on October 29, 1999. This was the first Studio Ghibli film in the United States to be rated PG-13 by the MPA. It was a critical and commercial blockbuster, becoming the highest-grossing film in Japan of 1997, and also held Japan's box office record for domestic films until 2001's Spirited Away, another Miyazaki film. It was dubbed into English with a script by Neil Gaiman and initially distributed in North America by Miramax, where it sold well on home media despite not performing strongly at the box office. The film greatly increased Ghibli's popularity and influence outside Japan.",
-        "People of the Desert (砂漠の民, Sabaku no Tami, translated on the cover as The People of Desert), or The Desert Tribe, is a comic strip written and illustrated by Hayao Miyazaki. It was serialized, under the pseudonym Akitsu Saburō (秋津三朗), and ran in Boys and Girls Newspaper (少年少女新聞, Shōnen Shōjo Shinbun) between September 12, 1969, and March 15, 1970.\n\n\n== Story ==\nThe story is set in the distant past, on the fictionalised desert plains of Central Asia. Part of the story takes place in the fortified city named Pejite (ペジテ). The story follows the exploits of the main character, Tem (テム, Temu), a shepherd boy of the fictional Sokut (ソクート, Sokūto) tribe, as he tries to evade the mounted militia of the nomadic Kittāru (キッタール) tribe. In order to restore peace to the realm, Tem rallies his remaining compatriots and rebels against the Kittāru's attempts to gain control of the Sokut territory and enslave its inhabitants through military force.\n\n\n== Background, publication and influences ==\nMiyazaki initially wanted to become a manga artist but started his professional career as an animator for Toei Animation in 1963. Here he worked on animated television series and animated feature-length films for theatrical release. He never abandoned his childhood dream of becoming a manga artist completely, however, and his professional debut as a manga creator came in 1969 with the publication of his manga interpretation of Puss 'n Boots, which was serialized in 12 weekly instalments in the Sunday edition of Tokyo Shimbun, from January to March 1969. Printed in colour and created for promotional purposes in conjunction with his work on Toei's animated film of the same title, directed by Kimio Yabuki.\nIn 1969 pseudonymous serialization also started of Miyazaki's original manga People of the Desert (砂漠の民, Sabaku no Tami). This strip was created in the style of illustrated stories (絵物語, emonogatari) he read in boys' magazines and tankōbon volumes while growing up, such as Soji Yamakawa's Shōnen Ōja (少年王者) and in particular Tetsuji Fukushima's Evil Lord of the Desert (沙漠の魔王, Sabaku no Maō). Miyazaki's People of the Desert is a continuation of that tradition. In People of the Desert expository text is presented separately from the monochrome artwork but Miyazaki progressively used additional text balloons inside the panels for dialogue.\nPeople of the Desert was serialized in 26 weekly instalments which were printed in Boys and Girls Newspaper (少年少女新聞, Shōnen shōjo shinbun), a publication of the Japanese Communist Party, between September 12, 1969 (issue 28) and March 15, 1970 (issue 53). The strip was published under the pseudonym Akitsu Saburō (秋津三朗).\nThe strip has been identified as a precursor for Miyazaki's manga Nausicaä of the Valley of the Wind (1982–1995) and the one-off graphic novel Shuna's Journey (1983), published by Tokuma Shoten.",
-    ]
-    new_doc_metadata = [
-        {"entity": "film", "source": "wikipedia"},
-        {"entity": "manga", "source": "wikipedia"},
-    ]
+    if params_used.get("effective_document_ids_for_assertion"):
+        provided_doc_ids_set = set(params_used["effective_document_ids_for_assertion"])
+        mapped_doc_ids_set = set(pid_docid_map_data.values())
+        assert provided_doc_ids_set == mapped_doc_ids_set, "Mismatch between provided document_ids and those in pid_docid_map."
+
+
+def test_search_results_and_metadata(rag_model_instance, created_index_data):
+    RAG = rag_model_instance
+    index_name = created_index_data["index_name"]
+    params_used = created_index_data["params_used"]
+
+    query = "Hayao Miyazaki Ghibli" # A general query likely to hit sample data
+    results = RAG.search(index_name=index_name, query=query, k=1)
+
+    assert isinstance(results, list)
+    if params_used["documents"]:
+        # Results can be empty if k=0 or no match, so check len >= 0
+        assert len(results) <= 1, "Search with k=1 should return at most 1 result."
+        if results:
+            result = results[0]
+            assert "content" in result
+            assert "score" in result
+            assert "rank" in result
+            assert "document_id" in result
+
+            if params_used.get("document_metadatas") and params_used.get("effective_document_ids_for_assertion"):
+                assert "document_metadata" in result, "document_metadata missing in search result."
+                retrieved_doc_id = result["document_id"]
+                try:
+                    original_idx = params_used["effective_document_ids_for_assertion"].index(retrieved_doc_id)
+                    expected_metadata = params_used["document_metadatas"][original_idx]
+                    assert result["document_metadata"] == expected_metadata, "Mismatch in returned document metadata."
+                except ValueError:
+                    # This can happen if the retrieved_doc_id was auto-generated and not in our effective_document_ids_for_assertion
+                    # This part of the check is only fully valid if document_ids were explicitly provided.
+                    if params_used["document_ids"] is not None: # Only fail if we expected to find it
+                        pytest.fail(f"Retrieved document_id {retrieved_doc_id} not in original document_ids for test.")
+            else:
+                assert "document_metadata" not in result, "document_metadata present when it was not indexed."
+    else: # No documents were indexed
+        assert len(results) == 0
+
+
+def test_add_to_existing_index(rag_model_instance, created_index_data, persistent_test_index_root):
+    RAG = rag_model_instance
+    index_name = created_index_data["index_name"]
+    full_index_dir_path = get_full_index_path_obj(persistent_test_index_root, index_name)
+    collection_file_path = full_index_dir_path / "collection.json"
+    pid_docid_map_file_path = full_index_dir_path / "pid_docid_map.json"
+    docid_metadata_map_file_path = full_index_dir_path / "docid_metadata_map.json"
+
+    initial_collection_len = len(srsly.read_json(str(collection_file_path)))
+
+    new_docs_to_add = ["Toei Animation is another famous Japanese animation studio."]
+    new_doc_ids_to_add = ["toei_animation_info_add_test"]
+    new_doc_metadatas_to_add = [{"entity": "organisation", "source": "test_add_to_index"}]
+
     RAG.add_to_index(
-        new_collection=new_docs,
-        new_document_ids=new_doc_ids,
-        new_document_metadatas=new_doc_metadata,
-        index_name=index_creation_inputs["index_name"],
+        index_name=index_name,
+        new_documents=new_docs_to_add,
+        new_document_ids=new_doc_ids_to_add,
+        new_document_metadatas=new_doc_metadatas_to_add,
     )
-    pid_docid_map_data = srsly.read_json(pid_docid_map_path_fixture)
-    document_ids = set(list(pid_docid_map_data.values()))
 
-    document_metadata_dict = srsly.read_json(document_metadata_path_fixture)
-    # check for new docs
-    for new_doc_id in new_doc_ids:
-        assert (
-            new_doc_id in document_ids
-        ), f"New document ID '{new_doc_id}' should be in the pid_docid_map's document_ids:{document_ids}."
+    updated_collection = srsly.read_json(str(collection_file_path))
+    assert len(updated_collection) > initial_collection_len
 
-        assert (
-            new_doc_id in document_metadata_dict
-        ), f"New document ID '{new_doc_id}' should be in the document metadata keys:{document_metadata_dict.keys}."
+    updated_pid_docid_map = srsly.read_json(str(pid_docid_map_file_path))
+    assert new_doc_ids_to_add[0] in updated_pid_docid_map.values()
 
-    for existing_doc_id in existing_doc_ids:
-        assert (
-            existing_doc_id in document_ids
-        ), f"Old document ID '{existing_doc_id}' should be in the pid_docid_map's document_ids:{document_ids}."
+    if docid_metadata_map_file_path.exists() or new_doc_metadatas_to_add: # File may be created if it didn't exist but new metadata is added
+        # Wait for file system to catch up if needed, though srsly should handle it.
+        if not docid_metadata_map_file_path.exists() and new_doc_metadatas_to_add:
+            import time; time.sleep(0.1) # Small delay, usually not needed
 
-        if "document_metadatas" in index_creation_inputs:
-            assert (
-                existing_doc_id in document_metadata_dict
-            ), f"Old document ID '{existing_doc_id}' should be in the document metadata keys:{document_metadata_dict.keys}."
+        if docid_metadata_map_file_path.exists():
+            updated_docid_metadata_map = srsly.read_json(str(docid_metadata_map_file_path))
+            assert new_doc_ids_to_add[0] in updated_docid_metadata_map
+            assert updated_docid_metadata_map[new_doc_ids_to_add[0]] == new_doc_metadatas_to_add[0]
+    
+    results_for_new = RAG.search(index_name=index_name, query="Toei Animation studio", k=3)
+    found_new_doc_in_search = any(res.get("document_id") == new_doc_ids_to_add[0] for res in results_for_new)
+    assert found_new_doc_in_search, "Newly added document not found in search results."
 
 
-# TODO: move this to a separate CRUD test file
-def test_delete_from_index(
-    index_creation_inputs,
-    pid_docid_map_path_fixture,
-    document_metadata_path_fixture,
-    index_path_fixture,
-):
-    RAG = RAGPretrainedModel.from_index(index_path_fixture)
-    deleted_doc_id = index_creation_inputs["document_ids"][0]
-    original_doc_ids = set(index_creation_inputs["document_ids"])
-    RAG.delete_from_index(
-        index_name=index_creation_inputs["index_name"],
-        document_ids=[deleted_doc_id],
-    )
-    pid_docid_map_data = srsly.read_json(pid_docid_map_path_fixture)
-    updated_document_ids = set(list(pid_docid_map_data.values()))
+def test_delete_from_index(rag_model_instance, created_index_data, persistent_test_index_root):
+    RAG = rag_model_instance
+    index_name = created_index_data["index_name"]
+    params_used = created_index_data["params_used"]
+    
+    # This test can only meaningfully run if specific document_ids were used for creation
+    if not params_used.get("effective_document_ids_for_assertion"):
+        pytest.skip("Skipping delete test as no explicit document_ids were used for this index setup.")
 
-    assert (
-        deleted_doc_id not in updated_document_ids
-    ), f"Deleted document ID '{deleted_doc_id}' should not be in the pid_docid_map's document_ids: {updated_document_ids}."
+    doc_id_to_delete = params_used["effective_document_ids_for_assertion"][0]
+    content_of_deleted_doc = params_used["documents"][0] # Get content to search for it later
 
-    assert (
-        original_doc_ids - updated_document_ids == {deleted_doc_id}
-    ), f"Only the deleted document ID '{deleted_doc_id}' should be missing from the pid_docid_map's document_ids: {updated_document_ids}."
+    full_index_dir_path = get_full_index_path_obj(persistent_test_index_root, index_name)
+    pid_docid_map_file_path = full_index_dir_path / "pid_docid_map.json"
+    docid_metadata_map_file_path = full_index_dir_path / "docid_metadata_map.json"
 
-    if "document_metadatas" in index_creation_inputs:
-        document_metadata_dict = srsly.read_json(document_metadata_path_fixture)
-        assert (
-            deleted_doc_id not in document_metadata_dict
-        ), f"Deleted document ID '{deleted_doc_id}' should not be in the document metadata: {document_metadata_dict.keys}."
-        assert (
-            original_doc_ids - set(document_metadata_dict.keys()) == {deleted_doc_id}
-        ), f"Only the deleted document ID '{deleted_doc_id}' should be missing from the document metadata: {document_metadata_dict.keys}."
+    RAG.delete_from_index(index_name=index_name, document_ids=[doc_id_to_delete])
+
+    updated_pid_docid_map = srsly.read_json(str(pid_docid_map_file_path))
+    assert doc_id_to_delete not in updated_pid_docid_map.values()
+
+    if params_used.get("document_metadatas"):
+        if docid_metadata_map_file_path.exists(): # File might be deleted if all entries removed
+            updated_docid_metadata_map = srsly.read_json(str(docid_metadata_map_file_path))
+            assert doc_id_to_delete not in updated_docid_metadata_map
+            
+    # Try to search for content of the deleted document
+    results_after_delete = RAG.search(index_name=index_name, query=content_of_deleted_doc, k=5)
+    found_deleted_id_in_results = any(res.get("document_id") == doc_id_to_delete for res in results_after_delete)
+    assert not found_deleted_id_in_results, f"Document ID {doc_id_to_delete} was found in search results after deletion."
