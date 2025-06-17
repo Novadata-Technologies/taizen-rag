@@ -65,25 +65,23 @@ def pid_docid_map_path_fixture_session(index_path_fixture_session):
     pid_docid_map_path = os.path.join(index_path_fixture_session, "pid_docid_map.json")
     return str(pid_docid_map_path)
 
-# Renamed original fixture to avoid conflict if used directly by tests
-# These are now session-scoped to match the dependent fixtures.
 @pytest.fixture(
     scope="session",
     params=[
         {
-            "collection": collection_samples, # Use original variable name for data
+            "collection": collection_samples,
             "index_name": "no_optional_args",
             "split_documents": False,
         },
         {
             "collection": collection_samples,
-            "document_ids": document_ids_samples, # Use original variable name
+            "document_ids": document_ids_samples,
             "index_name": "with_docid",
             "split_documents": False,
         },
         {
             "collection": collection_samples,
-            "document_metadatas": document_metadatas_samples, # Use original variable name
+            "document_metadatas": document_metadatas_samples,
             "index_name": "with_metadata",
             "split_documents": False,
         },
@@ -145,7 +143,7 @@ def create_index_session(RAG_from_pretrained_model_fixture, index_creation_input
     if split_docs:
         api_call_params["max_document_length"] = 256 # Default for splitting
     else:
-        api_call_params["max_document_length"] = 1_000_000 # Effectively no splitting
+        api_call_params["max_document_length"] = 512 # Cap at model's max sequence length
 
     # Ensure 'document_ids' and 'document_metadatas' are present if needed, or pass None
     api_call_params.setdefault("document_ids", None)
@@ -200,7 +198,7 @@ def populate_docids_in_inputs_session(
 # Each test function will run ONCE per parameter set defined in `index_creation_inputs_session`.
 # The state of the index will persist across these test functions for a given parameter set.
 
-def test_index_creation(create_index_session): # Uses the created index for the current param set
+def test_index_creation(create_index_session):
     assert os.path.exists(create_index_session), "Index path should exist."
 
 def test_collection_creation(collection_path_fixture_session): # Path for current param set
