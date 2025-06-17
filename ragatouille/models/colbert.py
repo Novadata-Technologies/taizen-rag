@@ -340,7 +340,13 @@ class ColBERT(LateInteractionModel):
 
         current_collection = self.collections.get(index_name, [])
         current_pid_docid_map = self.pid_docid_maps.get(index_name, {})
-        current_docid_metadata_map = self.docid_metadata_maps.get(index_name, defaultdict(lambda: None))
+        # Ensure current_docid_metadata_map is a dict, not None, before .update()
+        current_docid_metadata_map_val = self.docid_metadata_maps.get(index_name)
+        if current_docid_metadata_map_val is None:
+            current_docid_metadata_map = {}
+        else:
+            current_docid_metadata_map = current_docid_metadata_map_val
+
 
         # Filter out documents whose document_ids are already present
         # This assumes new_pid_docid_map_for_new_docs gives the final intended document_id for each new passage
@@ -372,8 +378,9 @@ class ColBERT(LateInteractionModel):
         current_collection.extend(new_collection_for_indexer)
 
         if new_docid_metadata_map:
+            # current_docid_metadata_map is guaranteed to be a dict here
             current_docid_metadata_map.update(new_docid_metadata_map)
-
+        
         self.collections[index_name] = current_collection
         self.pid_docid_maps[index_name] = current_pid_docid_map
         self.docid_metadata_maps[index_name] = current_docid_metadata_map
