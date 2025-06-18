@@ -84,102 +84,54 @@ class RAGPretrainedModel:
     @classmethod
     def from_index(
         cls,
-        index_path_or_names: Union[str, Path, List[str], List[Path]],
+        index_path: Union[str, Path],
         n_gpu: int = -1,
         verbose: int = 1,
         document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
         preprocessing_fns: Optional[Union[Callable, List[Callable]]] = None,
         pretrained_model_name_or_path: Optional[Union[str, Path]] = None,
-        index_root: Optional[str] = None,
-        experiment_name: Optional[str] = None,
         **colbert_kwargs: Any,
     ):
         """
-        Load a RAGPretrainedModel from one or more existing index directories.
-        The underlying ColBERT model will be loaded, and the first index will be
-        set as the initially loaded index.
+        Load a RAGPretrainedModel from an existing index directory.
+        The underlying ColBERT model will be loaded, and this specific index will be
+        set as the initially loaded index. The model will have access to all other
+        indexes in the same experiment.
 
         Parameters:
-            index_path_or_names: Path(s) to specific ColBERT index directories, or index names
-                                if index_root and experiment_name are provided.
+            index_path: Path to the specific ColBERT index directory.
             n_gpu: Number of GPUs to use.
             verbose: Verbosity level.
             document_splitter_fn: Function to split documents into passages.
             preprocessing_fns: Functions to preprocess passages.
             pretrained_model_name_or_path: Optional. Path/name of the base ColBERT model.
                                            If not provided, attempts to infer from index metadata.
-            index_root: Optional. Root directory for indexes. If provided along with experiment_name,
-                       index_path_or_names is treated as index names.
-            experiment_name: Optional. Experiment name. If provided along with index_root,
-                            index_path_or_names is treated as index names.
             **colbert_kwargs: Additional keyword arguments for ColBERTConfig.
         """
-        # Handle single item as list for uniform processing
-        if isinstance(index_path_or_names, (str, Path)):
-            index_path_or_names = [index_path_or_names]
+        resolved_index_path = Path(index_path).resolve()
+        initial_index_name = resolved_index_path.name
 
-        # Determine if we're dealing with index names or paths
-        if index_root is not None and experiment_name is not None:
-            # Treat as index names, construct paths
-            resolved_index_paths = [
-                Path(index_root).resolve() / experiment_name / "indexes" / name
-                for name in index_path_or_names
-            ]
-            experiment_name_for_colbert = experiment_name
-            index_root_for_colbert = str(Path(index_root).resolve())
-        else:
-            # Treat as paths, infer index_root and experiment_name
-            resolved_index_paths = [Path(path).resolve() for path in index_path_or_names]
+        # Always infer index_root and experiment_name from the path structure
+        # Expected structure: index_root/experiment_name/indexes/index_name
+        if len(resolved_index_path.parts) < 3 or resolved_index_path.parent.name != "indexes":
+            raise ValueError(f"Invalid index path structure: {resolved_index_path}. Expected: .../experiment_name/indexes/index_name")
 
-            # Validate all paths exist and infer common index_root/experiment_name
-            inferred_index_roots = []
-            inferred_experiment_names = []
-
-            for resolved_path in resolved_index_paths:
-                if not resolved_path.exists():
-                    raise ValueError(f"Index path does not exist: {resolved_path}")
-
-                # Expect structure: index_root/experiment_name/indexes/index_name
-                if len(resolved_path.parts) < 3 or resolved_path.parent.name != "indexes":
-                    raise ValueError(f"Invalid index path structure: {resolved_path}. Expected: .../experiment_name/indexes/index_name")
-
-                inferred_experiment_name = resolved_path.parent.parent.name
-                inferred_index_root = str(resolved_path.parent.parent.parent)
-
-                inferred_experiment_names.append(inferred_experiment_name)
-                inferred_index_roots.append(inferred_index_root)
-
-            # Ensure all indexes share the same index_root and experiment_name
-            if len(set(inferred_index_roots)) > 1:
-                raise ValueError(f"All indexes must have the same index_root. Found: {set(inferred_index_roots)}")
-            if len(set(inferred_experiment_names)) > 1:
-                raise ValueError(f"All indexes must have the same experiment_name. Found: {set(inferred_experiment_names)}")
-
-            experiment_name_for_colbert = inferred_experiment_names[0]
-            index_root_for_colbert = inferred_index_roots[0]
-
-        # Use the first index for initial loading and model inference
-        first_index_path = resolved_index_paths[0]
-        initial_index_name = first_index_path.name
+        experiment_name_for_colbert = resolved_index_path.parent.parent.name
+        index_root_for_colbert = str(resolved_index_path.parent.parent.parent)
 
         base_model_path_to_use = pretrained_model_name_or_path
 
         if not base_model_path_to_use:
             try:
-                temp_colbert_config = ColBERTConfig.load_from_index(str(first_index_path))
+                temp_colbert_config = ColBERTConfig.load_from_index(str(resolved_index_path))
                 base_model_path_to_use = temp_colbert_config.checkpoint
-
                 if verbose > 0:
-                    print(
-                        f"Inferred base model: {base_model_path_to_use}, "
-                        f"experiment: {experiment_name_for_colbert}, "
-                        f"index_root: {index_root_for_colbert} from index '{initial_index_name}'."
-                    )
+                    print(f"Inferred base model: {base_model_path_to_use} from index '{initial_index_name}'.")
             except Exception as e:
                 if verbose > 0:
                     print(
                         f"Warning: Could not automatically determine base model path "
-                        f"from index '{first_index_path}'. Error: {e}"
+                        f"from index '{index_path}'. Error: {e}"
                     )
                 raise ValueError(
                     "Failed to load from index. pretrained_model_name_or_path is required "
@@ -189,20 +141,17 @@ class RAGPretrainedModel:
         if not base_model_path_to_use:
             raise ValueError("pretrained_model_name_or_path could not be determined for from_index.")
 
-        # Validate that all indexes are accessible with the inferred settings
-        for i, resolved_path in enumerate(resolved_index_paths):
-            if not resolved_path.exists():
-                raise ValueError(f"Index {i+1} does not exist: {resolved_path}")
-
-            if verbose > 0 and len(resolved_index_paths) > 1:
-                print(f"Validated index {i+1}/{len(resolved_index_paths)}: {resolved_path.name}")
+        if verbose > 0:
+            print(
+                f"Loading RAG model from index '{initial_index_name}' with "
+                f"experiment: {experiment_name_for_colbert}, index_root: {index_root_for_colbert}"
+            )
 
         # Allow kwargs to override inferred values if explicitly passed
         if "index_root" in colbert_kwargs:
             index_root_for_colbert = colbert_kwargs.pop("index_root")
         if "experiment_name" in colbert_kwargs:
              experiment_name_for_colbert = colbert_kwargs.pop("experiment_name")
-
 
         return cls.from_pretrained(
             pretrained_model_name_or_path=str(base_model_path_to_use),
