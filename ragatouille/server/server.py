@@ -81,7 +81,8 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="jinaai/jina-colbert-v2",
+        # default="jinaai/jina-colbert-v2", # This seems awful for now
+        default="colbert-ir/colbertv2.0",
         help="Base model to serve, can be an HF model name or a path to a local ColBERT checkpoint.",
     )
     parser.add_argument(
@@ -130,7 +131,7 @@ try:
     if args.initial_index_name:
         print(f"Attempting to pre-load initial index: {args.initial_index_name}")
 
-    model = RAGPretrainedModel.from_pretrained(
+    RAG = RAGPretrainedModel.from_pretrained(
         pretrained_model_name_or_path=args.model,
         index_root=args.index_root,
         initial_index_name=args.initial_index_name,
@@ -168,7 +169,7 @@ async def create_index(request: IndexRequest):
         print(f"Indexing documents for index_id: {request.index_id}...")
         # RAGPretrainedModel.index will handle splitting and creating ColBERT index
         # Overwrite policy is handled by ColBERT (default "reuse")
-        index_path = model.index(
+        index_path = RAG.index(
             index_name=request.index_id,
             documents=request.input,
             document_ids=document_ids,
@@ -205,7 +206,7 @@ async def add_to_index(request: IndexRequest):
         document_metadatas = [{"project_id": meta.project_id} for meta in request.metadata]
 
         print(f"Indexing documents for index_id: {request.index_id}...")
-        model.add_to_index(
+        RAG.add_to_index(
             index_name=request.index_id,
             new_documents=request.input,
             new_document_ids=document_ids,
@@ -232,7 +233,7 @@ async def query_index(request: QueryRequest):
 
         print(f"Querying index_id: {request.index_id} with k={k_val}...")
         # RAGPretrainedModel.search handles loading the correct index context
-        search_results = model.search(
+        search_results = RAG.search(
             index_name=request.index_id,
             query=request.input,
             k=k_val
@@ -246,7 +247,7 @@ async def query_index(request: QueryRequest):
 
         print(f"Query successful for index_id: {request.index_id}.")
         return QueryResponse(
-            model=model.get_model().base_pretrained_model_name_or_path, # Get base model name
+            model=RAG.get_model().base_pretrained_model_name_or_path, # Get base model name
             data=final_results
         )
     except FileNotFoundError as fnfe: # Specific error if index doesn't exist for querying
