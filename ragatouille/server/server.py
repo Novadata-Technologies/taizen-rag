@@ -1,6 +1,7 @@
 import argparse
 from typing import List, Dict, Optional
 import os
+from contextlib import asynccontextmanager
 
 # import batched # Batched processing is currently commented out
 import uvicorn
@@ -10,7 +11,40 @@ from fastapi.responses import JSONResponse
 
 from ragatouille import RAGPretrainedModel
 
-app = FastAPI()
+# Global variable to store RAG model
+RAG = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    global RAG
+    print("🚀 Starting up RAGatouille server...")
+    try:
+        print(f"📦 Loading RAGPretrainedModel with base model: {args.model}")
+        print(f"📁 Index root set to: {args.index_root}")
+        if args.initial_index_name:
+            print(f"🔍 Attempting to pre-load initial index: {args.initial_index_name}")
+
+        RAG = RAGPretrainedModel.from_pretrained(
+            pretrained_model_name_or_path=args.model,
+            index_root=args.index_root,
+            initial_index_name=args.initial_index_name,
+            experiment_name=args.experiment_name,
+        )
+        print("✅ RAGPretrainedModel loaded successfully.")
+        print("🎯 Server is ready to accept requests!")
+    except Exception as e:
+        print(f"❌ Error loading RAGPretrainedModel: {e}")
+        raise RuntimeError(f"Failed to initialize RAGPretrainedModel: {e}") from e
+
+    yield
+
+    # Shutdown
+    print("🛑 Shutting down RAGatouille server...")
+    cleanup_resources()
+    print("✅ Server shutdown complete.")
+
+app = FastAPI(lifespan=lifespan)
 
 class DocumentMetadata(BaseModel):
     id: str # Unique ID for the original document
@@ -123,25 +157,27 @@ if args.reload:
     os.environ["API_RELOAD"] = "true"
     print("API_RELOAD enabled by --reload flag.")
 
-# Load the single RAGPretrainedModel instance
-# This model instance will manage multiple indices under args.index_root
-try:
-    print(f"Loading RAGPretrainedModel with base model: {args.model}")
-    print(f"Index root set to: {args.index_root}")
-    if args.initial_index_name:
-        print(f"Attempting to pre-load initial index: {args.initial_index_name}")
-
-    RAG = RAGPretrainedModel.from_pretrained(
-        pretrained_model_name_or_path=args.model,
-        index_root=args.index_root,
-        initial_index_name=args.initial_index_name,
-        experiment_name=args.experiment_name,
-    )
-    print("RAGPretrainedModel loaded successfully.")
-except Exception as e:
-    print(f"Error loading RAGPretrainedModel: {e}")
-    # Depending on server resilience requirements, you might exit or try to run degraded
-    raise RuntimeError(f"Failed to initialize RAGPretrainedModel: {e}") from e
+def cleanup_resources():
+    """Clean up resources on shutdown"""
+    global RAG
+    if RAG is not None:
+        print("🧹 Cleaning up RAGPretrainedModel resources...")
+        try:
+            # If the model has any cleanup methods, call them here
+            if hasattr(RAG, 'cleanup'):
+                print("🔧 Calling model cleanup method...")
+                RAG.cleanup()
+            # Force garbage collection to help with cleanup
+            print("🗑️  Running garbage collection...")
+            import gc
+            gc.collect()
+            # Clear the model reference
+            RAG = None
+            print("✅ RAGPretrainedModel cleanup completed.")
+        except Exception as e:
+            print(f"⚠️  Error during RAGPretrainedModel cleanup: {e}")
+    else:
+        print("ℹ️  No RAGPretrainedModel to clean up.")
 
 
 router = APIRouter()
