@@ -24,8 +24,16 @@ def miyazaki_index_name():
     return "Miyazaki"
 
 @pytest.fixture(scope="session")
+def toei_index_name():
+    return "Toei"
+
+@pytest.fixture(scope="session")
 def miyazaki_index_path(session_index_root, experiment_name, miyazaki_index_name):
     return Path(session_index_root) / experiment_name / "indexes" / miyazaki_index_name
+
+@pytest.fixture(scope="session")
+def toei_index_path(session_index_root, experiment_name, toei_index_name):
+    return Path(session_index_root) / experiment_name / "indexes" / toei_index_name
 
 @pytest.fixture(scope="session")
 def rag_model_for_indexing(model_name, session_index_root, experiment_name):
@@ -36,10 +44,13 @@ def rag_model_for_indexing(model_name, session_index_root, experiment_name):
         experiment_name=experiment_name
     )
 
-def test_indexing(rag_model_for_indexing, miyazaki_index_name, miyazaki_index_path):
+def test_multi_indexing(rag_model_for_indexing, miyazaki_index_name, miyazaki_index_path, toei_index_name, toei_index_path):
     RAG = rag_model_for_indexing
     with open("tests/data/miyazaki_wikipedia.txt", "r") as f:
         full_document = f.read()
+
+    with open("tests/data/Toei_Animation_wikipedia.txt", "r") as f:
+        full_document2 = f.read()
 
     # RAG.index now takes 'documents' and 'document_ids'
     # 'split_documents' is handled by the CorpusProcessor inside RAGPretrainedModel
@@ -49,23 +60,33 @@ def test_indexing(rag_model_for_indexing, miyazaki_index_name, miyazaki_index_pa
         documents=[full_document],
         document_ids=["miyazaki_doc_1"], # Must provide document_ids
         max_document_length=180,
-        split_documents=True
     )
-    # ensure collection is stored to disk
+    RAG.index(
+        index_name=toei_index_name,
+        documents=[full_document2],
+        document_ids=["toei_doc_1"], # Must provide document_ids
+        max_document_length=180,
+    )
+    # ensure collections are stored to disk
     collection_path = miyazaki_index_path / "collection.json"
-    assert collection_path.exists(), f"Collection file not found at {collection_path}"
+    collection_path2 = toei_index_path / "collection.json"
+    assert collection_path.exists() and collection_path2.exists(), f"Collection file not found at {collection_path}"
     collection = srsly.read_json(str(collection_path))
+    collection2 = srsly.read_json(str(collection_path2))
     assert len(collection) > 1, "Collection should have more than one chunk"
+    assert len(collection2) > 1, "Collection should have more than one chunk"
 
 
-def test_search(model_name, miyazaki_index_name, miyazaki_index_path):
+def test_multi_index_search(model_name, session_index_root, experiment_name, miyazaki_index_name, miyazaki_index_path, toei_index_name, toei_index_path):
     # Ensure the index exists from test_indexing
-    assert miyazaki_index_path.exists(), f"Index path {miyazaki_index_path} must exist from a previous indexing step."
+    assert miyazaki_index_path.exists() and toei_index_path.exists(), f"Index paths {miyazaki_index_path} and {toei_index_path} must exist from a previous indexing step."
 
-    # from_index now also requires pretrained_model_name_or_path
+    # Use the new multi-index from_index method with index names
     RAG = RAGPretrainedModel.from_index(
-        index_path=str(miyazaki_index_path),
-        pretrained_model_name_or_path=model_name
+        index_path_or_names=[miyazaki_index_name, toei_index_name],
+        pretrained_model_name_or_path=model_name,
+        index_root=str(session_index_root),
+        experiment_name=experiment_name
     )
     k = 3
     # search now requires index_name
@@ -83,6 +104,10 @@ def test_search(model_name, miyazaki_index_name, miyazaki_index_path):
         'Glen Keane said Miyazaki is a "huge influence" on Walt Disney Animation Studios and has been'  # noqa
         in results[2]["content"]
     )
+
+    results = RAG.search(index_name=toei_index_name, query="When was Toei animation founded?", k=k)
+    assert len(results) == k
+    print("TOEI RESULTS", results)
 
     all_results = RAG.search(
         index_name=miyazaki_index_name,
@@ -116,6 +141,28 @@ def test_search(model_name, miyazaki_index_name, miyazaki_index_path):
         or "She met with Suzuki" in actual
     )
     print(all_results)
+
+
+def test_multi_index_search_with_paths(model_name, miyazaki_index_path, toei_index_path):
+    """Test loading multiple indexes using full paths instead of index names."""
+    # Ensure the indexes exist from test_indexing
+    assert miyazaki_index_path.exists() and toei_index_path.exists(), f"Index paths {miyazaki_index_path} and {toei_index_path} must exist from a previous indexing step."
+
+    # Use the new multi-index from_index method with full paths
+    RAG = RAGPretrainedModel.from_index(
+        index_path_or_names=[str(miyazaki_index_path), str(toei_index_path)],
+        pretrained_model_name_or_path=model_name
+    )
+
+    k = 3
+    # Test searching both indexes
+    miyazaki_results = RAG.search(index_name="Miyazaki", query="What animation studio did Miyazaki found?", k=k)
+    assert len(miyazaki_results) == k
+    assert "In April 1984, Miyazaki opened his own office in Suginami Ward" in miyazaki_results[0]["content"]
+
+    toei_results = RAG.search(index_name="Toei", query="When was Toei animation founded?", k=k)
+    assert len(toei_results) == k
+    print("TOEI RESULTS (path-based):", toei_results)
 
 
 @pytest.mark.skip(reason="experimental feature, needs careful review of add_to_index impact on existing data.")

@@ -135,7 +135,6 @@ try:
         index_root=args.index_root,
         initial_index_name=args.initial_index_name,
         experiment_name=args.experiment_name,
-        # Add other RAGPretrainedModel.from_pretrained parameters if needed (e.g., n_gpu, verbose)
     )
     print("RAGPretrainedModel loaded successfully.")
 except Exception as e:
