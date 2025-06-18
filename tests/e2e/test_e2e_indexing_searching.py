@@ -77,16 +77,14 @@ def test_multi_indexing(rag_model_for_indexing, miyazaki_index_name, miyazaki_in
     assert len(collection2) > 1, "Collection should have more than one chunk"
 
 
-def test_multi_index_search(model_name, session_index_root, experiment_name, miyazaki_index_name, miyazaki_index_path, toei_index_name, toei_index_path):
+def test_multi_index_search(model_name, miyazaki_index_name, miyazaki_index_path, toei_index_name, toei_index_path):
     # Ensure the index exists from test_indexing
     assert miyazaki_index_path.exists() and toei_index_path.exists(), f"Index paths {miyazaki_index_path} and {toei_index_path} must exist from a previous indexing step."
 
-    # Use the new multi-index from_index method with index names
+    # Load from one index, but model will have access to all indexes in the same experiment
     RAG = RAGPretrainedModel.from_index(
-        index_path_or_names=[miyazaki_index_name, toei_index_name],
-        pretrained_model_name_or_path=model_name,
-        index_root=str(session_index_root),
-        experiment_name=experiment_name
+        index_path=str(miyazaki_index_path),
+        pretrained_model_name_or_path=model_name
     )
     k = 3
     # search now requires index_name
@@ -107,7 +105,18 @@ def test_multi_index_search(model_name, session_index_root, experiment_name, miy
 
     results = RAG.search(index_name=toei_index_name, query="When was Toei animation founded?", k=k)
     assert len(results) == k
-    print("TOEI RESULTS", results)
+    assert (
+        "1948"
+        in results[0]["content"]
+    )
+    assert (
+        "is a Japanese animation studio primarily controlled by its namesake Toei Company"  # noqa
+        in results[1]["content"]
+    )
+    assert (
+        'In 1998, the Japanese name was renamed to Toei Animation'  # noqa
+        in results[2]["content"]
+    )
 
     all_results = RAG.search(
         index_name=miyazaki_index_name,
@@ -140,29 +149,61 @@ def test_multi_index_search(model_name, session_index_root, experiment_name, miy
         in actual
         or "She met with Suzuki" in actual
     )
-    print(all_results)
+
+    all_results = RAG.search(
+        index_name=toei_index_name,
+        query=["When was Toei animation founded?", "biggest Toei hits"],
+        k=k
+    )
+    assert (
+        "1948"
+        in all_results[0][0]["content"]
+    )
+    assert (
+        "is a Japanese animation studio primarily controlled by its namesake Toei Company"  # noqa
+        in all_results[0][1]["content"]
+    )
+    assert (
+        'In 1998, the Japanese name was renamed to Toei Animation'  # noqa
+        in all_results[0][2]["content"]
+    )
+    assert (
+        "Dr. Slump"
+        in all_results[1][0]["content"] and
+        "Dragon Ball"
+        in all_results[1][0]["content"] and
+        "One Piece"
+        in all_results[1][0]["content"]
+    )
+    assert (
+        "which an unauthorized third party attempted to hack Toei Animation's network"  # noqa
+        in all_results[1][1]["content"]
+    )
+    assert (
+        'It has created a number of TV series and movies and adapted Japanese comics as animated series'  # noqa
+        in all_results[0][2]["content"]
+    )
 
 
-def test_multi_index_search_with_paths(model_name, miyazaki_index_path, toei_index_path):
-    """Test loading multiple indexes using full paths instead of index names."""
+def test_multi_index_search_alternative_loading(model_name, miyazaki_index_path, toei_index_path):
+    """Test that loading from the other index also works."""
     # Ensure the indexes exist from test_indexing
     assert miyazaki_index_path.exists() and toei_index_path.exists(), f"Index paths {miyazaki_index_path} and {toei_index_path} must exist from a previous indexing step."
 
-    # Use the new multi-index from_index method with full paths
+    # Load from the Toei index this time
     RAG = RAGPretrainedModel.from_index(
-        index_path_or_names=[str(miyazaki_index_path), str(toei_index_path)],
+        index_path=str(toei_index_path),
         pretrained_model_name_or_path=model_name
     )
 
     k = 3
-    # Test searching both indexes
+    # Test searching both indexes (should work because they're in the same experiment)
     miyazaki_results = RAG.search(index_name="Miyazaki", query="What animation studio did Miyazaki found?", k=k)
     assert len(miyazaki_results) == k
     assert "In April 1984, Miyazaki opened his own office in Suginami Ward" in miyazaki_results[0]["content"]
 
     toei_results = RAG.search(index_name="Toei", query="When was Toei animation founded?", k=k)
     assert len(toei_results) == k
-    print("TOEI RESULTS (path-based):", toei_results)
 
 
 @pytest.mark.skip(reason="experimental feature, needs careful review of add_to_index impact on existing data.")
