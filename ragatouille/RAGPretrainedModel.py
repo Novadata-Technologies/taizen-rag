@@ -95,7 +95,8 @@ class RAGPretrainedModel:
         """
         Load a RAGPretrainedModel from an existing index directory.
         The underlying ColBERT model will be loaded, and this specific index will be
-        set as the initially loaded index.
+        set as the initially loaded index. The model will have access to all other
+        indexes in the same experiment.
 
         Parameters:
             index_path: Path to the specific ColBERT index directory.
@@ -110,28 +111,26 @@ class RAGPretrainedModel:
         resolved_index_path = Path(index_path).resolve()
         initial_index_name = resolved_index_path.name
 
+        # Always infer index_root and experiment_name from the path structure
+        # Expected structure: index_root/experiment_name/indexes/index_name
+        if len(resolved_index_path.parts) < 3 or resolved_index_path.parent.name != "indexes":
+            raise ValueError(f"Invalid index path structure: {resolved_index_path}. Expected: .../experiment_name/indexes/index_name")
+
+        experiment_name_for_colbert = resolved_index_path.parent.parent.name
+        index_root_for_colbert = str(resolved_index_path.parent.parent.parent)
+
         base_model_path_to_use = pretrained_model_name_or_path
-        experiment_name_for_colbert = "colbert"  # Default
-        index_root_for_colbert = None
 
         if not base_model_path_to_use:
             try:
                 temp_colbert_config = ColBERTConfig.load_from_index(str(resolved_index_path))
                 base_model_path_to_use = temp_colbert_config.checkpoint
-                experiment_name_for_colbert = temp_colbert_config.experiment
-                # Infer index_root: Path(index_root) / experiment_name / "indexes" / index_name = resolved_index_path
-                index_root_for_colbert = str(resolved_index_path.parent.parent.parent)
-
                 if verbose > 0:
-                    print(
-                        f"Inferred base model: {base_model_path_to_use}, "
-                        f"experiment: {experiment_name_for_colbert}, "
-                        f"index_root: {index_root_for_colbert} from index '{initial_index_name}'."
-                    )
+                    print(f"Inferred base model: {base_model_path_to_use} from index '{initial_index_name}'.")
             except Exception as e:
                 if verbose > 0:
                     print(
-                        f"Warning: Could not automatically determine base model path or other parameters "
+                        f"Warning: Could not automatically determine base model path "
                         f"from index '{index_path}'. Error: {e}"
                     )
                 raise ValueError(
@@ -142,12 +141,17 @@ class RAGPretrainedModel:
         if not base_model_path_to_use:
             raise ValueError("pretrained_model_name_or_path could not be determined for from_index.")
 
+        if verbose > 0:
+            print(
+                f"Loading RAG model from index '{initial_index_name}' with "
+                f"experiment: {experiment_name_for_colbert}, index_root: {index_root_for_colbert}"
+            )
+
         # Allow kwargs to override inferred values if explicitly passed
         if "index_root" in colbert_kwargs:
             index_root_for_colbert = colbert_kwargs.pop("index_root")
         if "experiment_name" in colbert_kwargs:
              experiment_name_for_colbert = colbert_kwargs.pop("experiment_name")
-
 
         return cls.from_pretrained(
             pretrained_model_name_or_path=str(base_model_path_to_use),
@@ -168,7 +172,7 @@ class RAGPretrainedModel:
     ) -> Optional[Dict[str, Any]]:
         if document_metadatas is None or not any(document_metadatas):
             return None
-        
+
         if not document_ids:
             if self.verbose > 0:
                 print("Warning: _build_docid_metadata_map called with empty document_ids.")
@@ -178,7 +182,7 @@ class RAGPretrainedModel:
         for i, doc_id in enumerate(document_ids):
             if i < len(document_metadatas) and document_metadatas[i] is not None:
                 docid_metadata_map[doc_id] = document_metadatas[i]
-        
+
         return docid_metadata_map if docid_metadata_map else None
 
     def _prepare_documents_for_processing(
@@ -212,7 +216,7 @@ class RAGPretrainedModel:
         pid_docid_map_for_colbert: Dict[int, str] = {
             i: chunk['document_id'] for i, chunk in enumerate(processed_chunks_dicts)
         }
-        
+
         docid_metadata_map_for_colbert = self._build_docid_metadata_map(
             final_original_doc_ids, document_metadatas
         )
