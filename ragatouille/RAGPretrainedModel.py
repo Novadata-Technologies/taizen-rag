@@ -472,3 +472,14 @@ class RAGPretrainedModel:
     def get_available_indexes(self) -> Dict[str, Dict[str, Union[int, bool, None]]]:
         """Returns a list of available indexes."""
         return self.model.list_available_indexes()
+
+    def delete_index(self, index_name: str):
+        """
+        Delete an entire index and all its associated files.
+
+        Parameters
+        ----------
+        index_name : str
+            The name of the index to delete.
+        """
+        self.model.delete_index(index_name=index_name)

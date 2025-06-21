@@ -952,6 +952,50 @@ class ColBERT(LateInteractionModel):
             print(f"Training complete. Best checkpoint saved to: {trainer.path_}") # trainer.path_ is new standard
         return trainer.path_
 
+    def delete_index(self, index_name: str):
+        """
+        Delete an entire index and all its associated files.
+
+        Parameters
+        ----------
+        index_name : str
+            The name of the index to delete.
+        """
+        import shutil
+
+        if index_name not in self.list_available_indexes():
+            raise FileNotFoundError(f"Index '{index_name}' not found.")
+
+        index_path = self._get_index_path(index_name)
+
+        try:
+            # Remove the index directory and all its contents
+            if os.path.exists(index_path):
+                shutil.rmtree(index_path)
+                if self.verbose > 0:
+                    print(f"Deleted index directory: {index_path}")
+
+            # Clean up in-memory references
+            if index_name in self.index_configs:
+                del self.index_configs[index_name]
+            if index_name in self.index_paths:
+                del self.index_paths[index_name]
+            if index_name in self.model_indices:
+                del self.model_indices[index_name]
+            if index_name in self.collections:
+                del self.collections[index_name]
+            if index_name in self.pid_docid_maps:
+                del self.pid_docid_maps[index_name]
+            if index_name in self.docid_pid_maps:
+                del self.docid_pid_maps[index_name]
+            if index_name in self.docid_metadata_maps:
+                del self.docid_metadata_maps[index_name]
+
+            if self.verbose > 0:
+                print(f"Successfully deleted index '{index_name}' and cleaned up memory references.")
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete index '{index_name}': {e}")
 
     def __del__(self):
         # Clean up global ColBERT context
