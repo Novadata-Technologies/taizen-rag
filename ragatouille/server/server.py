@@ -125,6 +125,33 @@ class ListIndexResponse(BaseModel):
     indexes: Dict[str, Dict[str, Union[int, bool, None]]]
 
 
+class DeleteIndexRequest(BaseModel):
+    """PyDantic model for the requests sent to the /index/{index_id} DELETE endpoint.
+
+    Parameters
+    ----------
+    index_id
+        The identifier of the index to delete.
+    """
+
+    index_id: str
+
+
+class DeleteIndexResponse(BaseModel):
+    """PyDantic model for the server answer to a DELETE index request.
+
+    Parameters
+    ----------
+    result
+        Status of the deletion operation.
+    deleted_index
+        The name of the deleted index.
+    """
+
+    result: str
+    deleted_index: str
+
+
 # Batched processing currently not used with the single model refactor
 # def wrap_encode_function(model, **kwargs):
 #     def wrapped_encode(sentences):
@@ -188,9 +215,8 @@ def cleanup_resources():
         print("🧹 Cleaning up RAGPretrainedModel resources...")
         try:
             # If the model has any cleanup methods, call them here
-            if hasattr(RAG, 'cleanup'):
-                print("🔧 Calling model cleanup method...")
-                RAG.cleanup()
+            # Note: RAGPretrainedModel doesn't have a cleanup method currently
+            # but we can add custom cleanup logic here if needed
             # Force garbage collection to help with cleanup
             print("🗑️  Running garbage collection...")
             import gc
@@ -227,6 +253,10 @@ async def create_index(request: IndexRequest):
         document_metadatas = [{"project_id": meta.project_id} for meta in request.metadata]
 
         print(f"Indexing documents for index_id: {request.index_id}...")
+
+        if RAG is None:
+            raise HTTPException(status_code=500, detail="RAG model not initialized")
+
         # RAGPretrainedModel.index will handle splitting and creating ColBERT index
         # Overwrite policy is handled by ColBERT (default "reuse")
         index_path = RAG.index(
@@ -268,6 +298,10 @@ async def add_to_index(request: IndexRequest):
         document_metadatas = [{"project_id": meta.project_id} for meta in request.metadata]
 
         print(f"Indexing documents for index_id: {request.index_id}...")
+
+        if RAG is None:
+            raise HTTPException(status_code=500, detail="RAG model not initialized")
+
         RAG.add_to_index(
             index_name=request.index_id,
             new_documents=request.input,
@@ -296,6 +330,9 @@ async def delete_from_index(request: DeleteDocRequest):
             }
         )
     try:
+        if RAG is None:
+            raise HTTPException(status_code=500, detail="RAG model not initialized")
+
         success = {}
         failure = request.documents.copy()
         for index_id, document_ids in request.documents.items():
@@ -325,6 +362,10 @@ async def query_index(request: QueryRequest):
         k_val = request.k if request.k is not None else 5 # Default k if not provided
 
         print(f"Querying index_id: {request.index_id} with k={k_val}...")
+
+        if RAG is None:
+            raise HTTPException(status_code=500, detail="RAG model not initialized")
+
         # RAGPretrainedModel.search handles loading the correct index context
         search_results = RAG.search(
             index_name=request.index_id,
@@ -340,7 +381,7 @@ async def query_index(request: QueryRequest):
 
         print(f"Query successful for index_id: {request.index_id}.")
         return QueryResponse(
-            model=RAG.get_model().base_pretrained_model_name_or_path, # Get base model name
+            model=str(RAG.get_model().base_pretrained_model_name_or_path), # Get base model name
             data=final_results
         )
     except FileNotFoundError as fnfe: # Specific error if index doesn't exist for querying
@@ -356,9 +397,45 @@ async def list_indexes():
     API endpoint to list all available indexes.
     """
     try:
+        if RAG is None:
+            raise HTTPException(status_code=500, detail="RAG model not initialized")
+
         return ListIndexResponse(indexes=RAG.get_available_indexes())
     except Exception as e:
         print(f"Error during index listing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/index/{index_id}", response_model=DeleteIndexResponse)
+async def delete_index(index_id: str):
+    """
+    API endpoint to delete an entire index.
+    """
+    try:
+        if RAG is None:
+            raise HTTPException(status_code=500, detail="RAG model not initialized")
+
+        print(f"Attempting to delete index: {index_id}")
+
+        # Check if index exists first
+        available_indexes = RAG.get_available_indexes()
+        if index_id not in available_indexes:
+            raise HTTPException(status_code=404, detail=f"Index '{index_id}' not found.")
+
+        # Delete the index
+        RAG.delete_index(index_name=index_id)
+
+        print(f"Successfully deleted index: {index_id}")
+        return DeleteIndexResponse(result="ok", deleted_index=index_id)
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except FileNotFoundError as fnfe:
+        print(f"Index not found for deletion: {index_id}. Error: {fnfe}")
+        raise HTTPException(status_code=404, detail=f"Index '{index_id}' not found.")
+    except Exception as e:
+        print(f"Error during index deletion for index_id {index_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
