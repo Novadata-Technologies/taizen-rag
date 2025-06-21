@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from ragatouille.models.colbert import ColBERT
 from ragatouille.data.corpus_processor import CorpusProcessor
-from ragatouille.data.preprocessors import llama_index_sentence_splitter
+from ragatouille.data.preprocessors import simple_sentence_splitter
 from colbert.infra import ColBERTConfig
 
 
@@ -42,7 +42,7 @@ class RAGPretrainedModel:
         n_gpu: int = -1,
         verbose: int = 1,
         experiment_name: str = "colbert",
-        document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
+        document_splitter_fn: Optional[Callable] = simple_sentence_splitter,
         preprocessing_fns: Optional[Union[Callable, List[Callable]]] = None,
         **colbert_kwargs: Any,
     ):
@@ -87,7 +87,7 @@ class RAGPretrainedModel:
         index_path: Union[str, Path],
         n_gpu: int = -1,
         verbose: int = 1,
-        document_splitter_fn: Optional[Callable] = llama_index_sentence_splitter,
+        document_splitter_fn: Optional[Callable] = simple_sentence_splitter,
         preprocessing_fns: Optional[Union[Callable, List[Callable]]] = None,
         pretrained_model_name_or_path: Optional[Union[str, Path]] = None,
         **colbert_kwargs: Any,
