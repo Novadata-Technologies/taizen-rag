@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from ragatouille import RAGTrainer
-from ragatouille.data import CorpusProcessor, llama_index_sentence_splitter
+from ragatouille.data import CorpusProcessor, simple_sentence_splitter
 
 DATA_DIR = pathlib.Path(__file__).parent / "data"
 
@@ -53,7 +53,7 @@ def test_training(tmp_path):
     my_full_corpus = [(DATA_DIR / f"{p}_wikipedia.txt").open().read() for p in pages]
 
     corpus_processor = CorpusProcessor(
-        document_splitter_fn=llama_index_sentence_splitter
+        document_splitter_fn=simple_sentence_splitter
     )
     documents = corpus_processor.process_corpus(my_full_corpus, chunk_size=256)
 
