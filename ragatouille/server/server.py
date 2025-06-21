@@ -1,5 +1,5 @@
 import argparse
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 import os
 from contextlib import asynccontextmanager
 
@@ -68,6 +68,18 @@ class IndexRequest(BaseModel):
     index_id: str
 
 
+class DeleteDocRequest(BaseModel):
+    """PyDantic model for the server answer to a delete document request.
+
+    Parameters
+    ----------
+    documents
+        Dictionary mapping index IDs to lists of document IDs.
+    """
+
+    documents: Dict[str, List[str]]
+
+
 class QueryRequest(BaseModel):
     """PyDantic model for the requests sent to the /query endpoint.
 
@@ -99,6 +111,18 @@ class QueryResponse(BaseModel):
 
     data: List[List[Dict]] # Assuming search always returns a list of lists for multiple queries
     model: str
+
+
+class ListIndexResponse(BaseModel):
+    """PyDantic model for the server answer to a /index/list call.
+
+    Parameters
+    ----------
+    data
+        List of index names.
+    """
+
+    indexes: Dict[str, Dict[str, Union[int, bool, None]]]
 
 
 # Batched processing currently not used with the single model refactor
@@ -182,7 +206,7 @@ def cleanup_resources():
 
 router = APIRouter()
 
-@router.post("/index/create")
+@router.post("/index")
 async def create_index(request: IndexRequest):
     """
     API endpoint to index a list of documents.
@@ -210,6 +234,7 @@ async def create_index(request: IndexRequest):
             documents=request.input,
             document_ids=document_ids,
             document_metadatas=document_metadatas,
+            overwrite_index="force_silent_overwrite"
             # max_document_length, bsize, use_faiss_index can be exposed or configured as needed
         )
         print(f"Documents indexed for index_id: {request.index_id}. Index path: {index_path}")
@@ -221,10 +246,11 @@ async def create_index(request: IndexRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/index/add")
+@router.put("/index/doc")
+#TODO alter this so it takes a dict, mapping index ids to documents
 async def add_to_index(request: IndexRequest):
     """
-    API endpoint to index a list of documents.
+    API endpoint to add a document to an index.
     If the index_id does not exist, a new index will be created.
     If it exists, behavior depends on the underlying ColBERT index overwrite policy (default "reuse").
     """
@@ -255,6 +281,37 @@ async def add_to_index(request: IndexRequest):
         print(f"Error during indexing for index_id {request.index_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.delete("/index/doc")
+async def delete_from_index(request: DeleteDocRequest):
+    """
+    API endpoint to delete a series of documents from a series of indexes.
+    """
+    def format_response(status_code: int, success: dict, failure: dict, error: str):
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "success": success,
+                "failure": failure,
+                "error": error
+            }
+        )
+    try:
+        success = {}
+        failure = request.documents.copy()
+        for index_id, document_ids in request.documents.items():
+            RAG.delete_from_index(
+                index_name=index_id,
+                document_ids=document_ids
+            )
+            success[index_id] = document_ids
+            del failure[index_id]
+        return format_response(200, success, failure, "")
+    except KeyError as ke:
+        return format_response(404, success, failure, str(ke))
+    except FileNotFoundError as fe:
+        return format_response(404, success, failure, str(fe))
+    except Exception as e:
+        return format_response(500, success, failure, str(e))
 
 @router.post("/query", response_model=QueryResponse)
 async def query_index(request: QueryRequest):
@@ -292,6 +349,18 @@ async def query_index(request: QueryRequest):
     except Exception as e:
         print(f"Error during query for index_id {request.index_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/index/list", response_model=ListIndexResponse)
+async def list_indexes():
+    """
+    API endpoint to list all available indexes.
+    """
+    try:
+        return ListIndexResponse(indexes=RAG.get_available_indexes())
+    except Exception as e:
+        print(f"Error during index listing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 app.include_router(router, prefix="/api/v1")
 
