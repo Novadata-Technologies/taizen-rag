@@ -23,7 +23,6 @@ readme = "README.md"
 requires-python = "~=3.12.0"
 
 dependencies = [
-    "llama-index",
     "faiss-cpu",
     "colbert-ai @ git+https://github.com/stanford-futuredata/ColBERT.git",
     "onnx",
@@ -46,7 +45,7 @@ all = [
     "fastapi >= 0.114.1",
     "uvicorn >= 0.30.6",
     "batched >= 0.1.2",
-    "pytest"
+    "pytest",
 ]
 api = ["fastapi >= 0.114.1", "uvicorn >= 0.30.6", "batched >= 0.1.2", "pytest"]
 train = ["sentence-transformers", "pylate", "rerankers"]
