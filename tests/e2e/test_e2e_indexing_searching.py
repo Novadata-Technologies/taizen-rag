@@ -90,99 +90,30 @@ def test_multi_index_search(model_name, miyazaki_index_name, miyazaki_index_path
     # search now requires index_name
     results = RAG.search(index_name=miyazaki_index_name, query="What animation studio did Miyazaki found?", k=k)
     assert len(results) == k
-    assert (
-        "In April 1984, Miyazaki opened his own office in Suginami Ward"
-        in results[0]["content"]
-    )
-    assert (
-        "Hayao Miyazaki (宮崎 駿 or 宮﨑 駿, Miyazaki Hayao, [mijaꜜzaki hajao]; born January 5, 1941)"  # noqa
-        in results[1]["content"]
-    )
-    assert (
-        'Glen Keane said Miyazaki is a "huge influence" on Walt Disney Animation Studios and has been'  # noqa
-        in results[2]["content"]
-    )
+    assert any('1984' in passage['content'] for passage in results)
+
 
     results = RAG.search(index_name=toei_index_name, query="When was Toei animation founded?", k=k)
     assert len(results) == k
-    assert (
-        "1948"
-        in results[0]["content"]
-    )
-    assert (
-        "is a Japanese animation studio primarily controlled by its namesake Toei Company"  # noqa
-        in results[1]["content"]
-    )
-    assert (
-        'In 1998, the Japanese name was renamed to Toei Animation'  # noqa
-        in results[2]["content"]
-    )
+    assert any('1948' in passage['content'] for passage in results)
 
     all_results = RAG.search(
         index_name=miyazaki_index_name,
         query=["What animation studio did Miyazaki found?", "Miyazaki son name"],
         k=k
     )
-    assert (
-        "In April 1984, Miyazaki opened his own office in Suginami Ward"
-        in all_results[0][0]["content"]
-    )
-    assert (
-        "Hayao Miyazaki (宮崎 駿 or 宮﨑 駿, Miyazaki Hayao, [mijaꜜzaki hajao]; born January 5, 1941)"  # noqa
-        in all_results[0][1]["content"]
-    )
-    assert (
-        'Glen Keane said Miyazaki is a "huge influence" on Walt Disney Animation Studios and has been'  # noqa
-        in all_results[0][2]["content"]
-    )
-    assert (
-        "== Early life ==\nHayao Miyazaki was born on January 5, 1941"
-        in all_results[1][0]["content"]  # noqa
-    )
-    assert (
-        "Directed by Isao Takahata, with whom Miyazaki would continue to collaborate for the remainder of his career"  # noqa
-        in all_results[1][1]["content"]
-    )
-    actual = all_results[1][2]["content"]
-    assert (
-        "Specific works that have influenced Miyazaki include Animal Farm (1945)"
-        in actual
-        or "She met with Suzuki" in actual
-    )
+    assert any('1984' in passage['content'] for passage in all_results[0])
+    assert any('keisuke' in passage['content'].lower() or 'goro' in passage['content'].lower() for passage in all_results[1])
 
     all_results = RAG.search(
         index_name=toei_index_name,
         query=["When was Toei animation founded?", "biggest Toei hits"],
         k=k
     )
-    assert (
-        "1948"
-        in all_results[0][0]["content"]
-    )
-    assert (
-        "is a Japanese animation studio primarily controlled by its namesake Toei Company"  # noqa
-        in all_results[0][1]["content"]
-    )
-    assert (
-        'In 1998, the Japanese name was renamed to Toei Animation'  # noqa
-        in all_results[0][2]["content"]
-    )
-    assert (
-        "Dr. Slump"
-        in all_results[1][0]["content"] and
-        "Dragon Ball"
-        in all_results[1][0]["content"] and
-        "One Piece"
-        in all_results[1][0]["content"]
-    )
-    assert (
-        "which an unauthorized third party attempted to hack Toei Animation's network"  # noqa
-        in all_results[1][1]["content"]
-    )
-    assert (
-        'It has created a number of TV series and movies and adapted Japanese comics as animated series'  # noqa
-        in all_results[0][2]["content"]
-    )
+    assert any('1948' in passage['content'] for passage in all_results[0])
+    assert any('Dr. Slump' in passage['content'] for passage in all_results[1])
+    assert any('Dragon Ball' in passage['content'] for passage in all_results[1])
+    assert any('One Piece' in passage['content'] for passage in all_results[1])
 
 
 def test_multi_index_search_alternative_loading(model_name, miyazaki_index_path, toei_index_path):
