@@ -445,8 +445,8 @@ class ColBERT(LateInteractionModel):
         pids_to_remove_from_indexer = []
         doc_ids_to_remove_set = set(document_ids if isinstance(document_ids, list) else [document_ids])
 
-        new_pid_docid_map = {}
-        kept_passage_indices = [] # 0-indexed relative to current_collection
+        #new_pid_docid_map = {}
+        #kept_passage_indices = [] # 0-indexed relative to current_collection
 
         # Iterate through current PIDs to find which ones to remove
         # And construct the list of PIDs for the Indexer.remove() method
@@ -479,7 +479,6 @@ class ColBERT(LateInteractionModel):
             verbose=self.verbose > 0,
         )
         self.index_configs[index_name] = model_index.config
-
 
         # After indexer has processed deletions, update our local high-level trackings
         # Rebuild collections, pid_docid_maps, etc. based on what remains
@@ -527,18 +526,16 @@ class ColBERT(LateInteractionModel):
         zero_index_ranks: bool = False,
         doc_ids: Optional[List[str]] = None, # Filter search to these document_ids
     ):
-        print("1")
         config = self._get_or_load_index_context(index_name, create_if_not_exists=False)
         model_index = self.model_indices.get(index_name)
         current_collection = self.collections.get(index_name)
         current_pid_docid_map = self.pid_docid_maps.get(index_name)
         current_docid_pid_map = self.docid_pid_maps.get(index_name)
         current_docid_metadata_map = self.docid_metadata_maps.get(index_name)
-        print("2", current_pid_docid_map)
 
         if model_index is None or not current_collection or not current_pid_docid_map or not current_docid_pid_map:
             raise ValueError(f"Index '{index_name}' is not properly loaded or is empty. Cannot search.")
-        print("3")
+
         pids_to_search_within = None
         if doc_ids is not None:
             pids_to_search_within = []
@@ -548,7 +545,6 @@ class ColBERT(LateInteractionModel):
                 if self.verbose > 0:
                     print(f"Warning: doc_ids filter provided for index '{index_name}', but no passages found for these doc_ids. Returning empty results.")
                 return [] if isinstance(query, str) else [[] for _ in query]
-        print("4")
         # The model_index search needs the full collection context if it's not already loaded by its Searcher
         # However, PLAIDModelIndex typically loads its own collection view.
         results_from_model_index = model_index.search(
@@ -563,7 +559,6 @@ class ColBERT(LateInteractionModel):
             force_reload=False, # We handle context loading; force_reload here is for searcher specific state.
             force_fast=force_fast,
         )
-        print("5")
         to_return = []
         for result_group in results_from_model_index: # result_group is for one query
             result_for_query = []
@@ -602,6 +597,14 @@ class ColBERT(LateInteractionModel):
 
         return to_return[0] if isinstance(query, str) and len(to_return) == 1 else to_return
 
+    def list_available_indexes(self) -> Dict[str, Dict[str, Union[int, bool, None]]]:
+        result = {}
+        base_path = self._get_index_path("")
+        for index_name in os.listdir(base_path):
+            index_collection = self.collections.get(index_name)
+            index_size = len(index_collection) if index_collection is not None else None
+            result[index_name] = {"size": index_size, "in_memory": index_size is not None}
+        return result
 
     # Methods for index-free operations (rank, encode, search_encoded_docs)
     # These operate on the base model and don't interact with specific disk-based indices.

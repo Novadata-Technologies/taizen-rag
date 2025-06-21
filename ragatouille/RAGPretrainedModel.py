@@ -468,3 +468,7 @@ class RAGPretrainedModel:
     def get_model(self) -> ColBERT:
         """Returns the underlying ColBERT model instance."""
         return self.model
+
+    def get_available_indexes(self) -> Dict[str, Dict[str, Union[int, bool, None]]]:
+        """Returns a list of available indexes."""
+        return self.model.list_available_indexes()
